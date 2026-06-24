@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.next/
+.DS_Store
+client/
+server/
+FastResume.jsx
+__pycache__/
+*.pyc
+tsconfig.tsbuildinfo
