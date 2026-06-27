@@ -109,7 +109,7 @@ export default function GenerateClient() {
   const [resumeMimeType, setResumeMimeType] = useState("");
   const [jobLink, setJobLink] = useState("");
   const [jobDescription, setJobDescription] = useState("");
-  const [langs, setLangs] = useState({ en: true, zh: false });
+  const [lang, setLang] = useState<"en" | "zh">("en");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -324,11 +324,6 @@ export default function GenerateClient() {
       setError("Paste the job description or at least a job link.");
       return;
     }
-    if (!langs.en && !langs.zh) {
-      setError("Pick at least one language.");
-      return;
-    }
-
     const supabase = createClient();
     let {
       data: { user },
@@ -349,7 +344,7 @@ export default function GenerateClient() {
     setLoading(true);
     setResult(null);
 
-    const language = langs.en && langs.zh ? "both" : langs.en ? "en" : "zh";
+    const language = lang;
 
     try {
       const res = await fetch("/api/generate", {
@@ -672,18 +667,18 @@ export default function GenerateClient() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setLangs((p) => ({ ...p, en: !p.en }))}
+              onClick={() => setLang("en")}
               className={`flex-1 rounded-xl border px-4 py-3 text-sm font-semibold ${
-                langs.en ? "border-[#7c3aed] bg-[#f5f3ff] text-[#5b21b6]" : "border-slate-300"
+                lang === "en" ? "border-[#7c3aed] bg-[#f5f3ff] text-[#5b21b6]" : "border-slate-300"
               }`}
             >
               English
             </button>
             <button
               type="button"
-              onClick={() => setLangs((p) => ({ ...p, zh: !p.zh }))}
+              onClick={() => setLang("zh")}
               className={`flex-1 rounded-xl border px-4 py-3 text-sm font-semibold ${
-                langs.zh ? "border-[#7c3aed] bg-[#f5f3ff] text-[#5b21b6]" : "border-slate-300"
+                lang === "zh" ? "border-[#7c3aed] bg-[#f5f3ff] text-[#5b21b6]" : "border-slate-300"
               }`}
             >
               中文
