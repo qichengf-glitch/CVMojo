@@ -1,45 +1,15 @@
-import { randomUUID } from "crypto";
-import { execFile } from "child_process";
-import { access, mkdir, readFile, rm, writeFile } from "fs/promises";
-import os from "os";
-import path from "path";
-import { promisify } from "util";
 import { NextResponse } from "next/server";
-
-const execFileAsync = promisify(execFile);
+import { exportDocument, type ExportFormat, type DocumentType } from "@/lib/export";
 
 export const runtime = "nodejs";
 
-type ExportFormat = "docx" | "pdf";
-type DocumentType = "resume" | "cover_letter";
-
 function safeDownloadName(name: string, format: ExportFormat) {
   const base = (name || "document")
-    .replace(/[^a-zA-Z0-9_\u4e00-\u9fff.-]+/g, "_")
+    .replace(/[^a-zA-Z0-9_一-鿿.-]+/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
 
   return `${base || "document"}.${format}`;
-}
-
-async function resolvePythonExecutable() {
-  const bundledPython = path.join(
-    os.homedir(),
-    ".cache",
-    "codex-runtimes",
-    "codex-primary-runtime",
-    "dependencies",
-    "python",
-    "bin",
-    "python3"
-  );
-
-  try {
-    await access(bundledPython);
-    return bundledPython;
-  } catch {
-    return "python3";
-  }
 }
 
 export async function POST(request: Request) {
@@ -68,60 +38,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid document language." }, { status: 400 });
     }
 
-    const tmpDir = path.join(os.tmpdir(), "cv-mojo-exports");
-    await mkdir(tmpDir, { recursive: true });
-
-    const id = randomUUID();
-    const inputPath = path.join(tmpDir, `${id}.json`);
-    const outputPath = path.join(tmpDir, `${id}.${body.format}`);
-    const scriptPath = path.join(process.cwd(), "scripts", "export_document.py");
-    const python = await resolvePythonExecutable();
-
-    await writeFile(
-      inputPath,
-      JSON.stringify({
-        content: body.content,
-        file_name: body.fileName,
-        format: body.format,
-        document_type: body.documentType,
-        language: body.language,
-      }),
-      "utf8"
+    const { buffer, contentType } = await exportDocument(
+      body.content,
+      body.documentType,
+      body.format,
+      body.language
     );
 
-    try {
-      await execFileAsync(
-        python,
-        [scriptPath, "--input", inputPath, "--output", outputPath],
-        {
-          cwd: process.cwd(),
-          env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-          maxBuffer: 8 * 1024 * 1024,
-        }
-      );
-
-      const file = await readFile(outputPath);
-      const contentType =
-        body.format === "docx"
-          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          : "application/pdf";
-
-      return new Response(file, {
-        headers: {
-          "Content-Type": contentType,
-          "Content-Disposition": `attachment; filename="${safeDownloadName(body.fileName, body.format)}"`,
-          "Cache-Control": "no-store",
-        },
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to export the document.";
-      return NextResponse.json({ error: message }, { status: 500 });
-    } finally {
-      await Promise.allSettled([rm(inputPath, { force: true }), rm(outputPath, { force: true })]);
-    }
+    return new Response(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${safeDownloadName(body.fileName, body.format)}"`,
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to export the document.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -95,7 +95,7 @@ export function buildGeneratePrompt(
   const currentDate = buildCurrentDateString();
   const candidateName = profile.profile.full_name?.trim() || "the candidate";
 
-  return `You are an expert resume writer optimizing a new-grad resume to maximize interview callbacks for a SPECIFIC job. You have the candidate's structured profile and the target job description.
+  return `You are an expert resume writer optimizing a candidate's resume to maximize interview callbacks for a SPECIFIC job. You have the candidate's structured profile and the target job description. Candidates range from students to experienced professionals; never assume seniority that the resume does not show.
 
 GOAL: Produce a tailored resume that (1) passes ATS keyword screening and (2) makes a human recruiter want to interview this person within a 6-second scan.
 
@@ -110,8 +110,10 @@ ${jobDescription || "(none — infer from link if possible)"}
 
 LANGUAGE: ${langInstruction()}
 
-KEYWORD AND EMPHASIS GUIDANCE:
+KEYWORD AND EMPHASIS GUIDANCE (use ONLY for tone, emphasis, and keyword framing — NOT for structure):
 ${sampleGuidance}
+
+STRUCTURE AUTHORITY: The candidate's own resume below is the single source of truth for structure, section names, section order, and formatting. If the reference guidance above implies a different structure or different section names, IGNORE that part. Never reorganize, rename, or reorder the candidate's sections to match the reference sample. A finance resume, a nursing resume, and a design resume should each keep their own original shape.
 
 ${candidateGuidance}
 
