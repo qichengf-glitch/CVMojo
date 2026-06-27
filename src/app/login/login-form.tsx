@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { hasSupabasePublicEnv, SUPABASE_ENV_ERROR } from "@/lib/supabase/env";
 import { AuthShell, Button, ErrorBanner, Input, SetupBanner } from "@/components/ui";
+import { GoogleButton } from "@/components/google-button";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -55,6 +56,14 @@ export default function LoginForm() {
           {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
+      {isSupabaseConfigured && (
+        <div className="mt-4">
+          <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
+            <span className="h-px flex-1 bg-slate-200" /> or <span className="h-px flex-1 bg-slate-200" />
+          </div>
+          <GoogleButton next={nextPath.startsWith("/") ? nextPath : "/generate"} />
+        </div>
+      )}
       <p className="mt-4 text-center text-sm text-slate-500">
         No account?{" "}
         <Link href="/signup" className="font-semibold text-[#7c3aed]">

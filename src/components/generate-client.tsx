@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ResumePreviewModal } from "@/components/resume-preview-modal";
-import type { GenerateResult } from "@/lib/types";
+import type { GenerateResult, KeywordPlacement } from "@/lib/types";
 import { extractResumeText, guessNameFromResumeText, safeName } from "@/lib/resume-files";
 import {
   isMissingStoredResumeColumnsError,
@@ -16,7 +16,92 @@ import {
   saveLocalStoredResumeSource,
 } from "@/lib/stored-resume";
 import { AppHeader, Button, Card, ErrorBanner, Input, Textarea } from "@/components/ui";
+import { GoogleButton } from "@/components/google-button";
 import { FadeIn } from "@/components/motion";
+
+function TailoringSummary({ text }: { text: string }) {
+  return (
+    <div className="space-y-1">
+      {text
+        .trim()
+        .split(/\n+/)
+        .filter(Boolean)
+        .map((line, index) => {
+          const colonIndex = line.search(/[:：]/);
+          if (colonIndex > 0) {
+            const label = line.slice(0, colonIndex + 1);
+            const rest = line.slice(colonIndex + 1);
+            return (
+              <p key={index} className="m-0">
+                <span className="font-bold text-slate-800">{label}</span>
+                {rest}
+              </p>
+            );
+          }
+          return (
+            <p key={index} className="m-0">
+              {line}
+            </p>
+          );
+        })}
+    </div>
+  );
+}
+
+// Detect which sections a resume actually has, so we only offer placements that
+// fit this candidate's resume (for example, no "relevant coursework" option when
+// there is no education section).
+function detectResumeSections(resume: string): {
+  skill: boolean;
+  coursework: boolean;
+  experience: boolean;
+} {
+  const headerLines = resume
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line || /^[•\-*·]/.test(line)) return false;
+      const words = line.split(/\s+/);
+      if (words.length > 6) return false;
+      const isUpper = /[A-Z]/.test(line) && line === line.toUpperCase();
+      const looksLikeHeader =
+        /^(education|skills?|technical skills|specialized skills|experience|work|employment|projects?|certification|coursework|additional)/i.test(
+          line
+        );
+      return isUpper || looksLikeHeader;
+    })
+    .join(" | ")
+    .toLowerCase();
+
+  // Only offer "relevant coursework" when there is an education section AND the
+  // resume already lists coursework to append to. Many resumes have no coursework
+  // line, and we should not invent that section for them.
+  const hasEducation = /education/.test(headerLines);
+  const hasCourseworkLine = /(relevant\s+)?course\s?work|relevant courses/i.test(resume);
+
+  return {
+    skill: /skill/.test(headerLines),
+    coursework: hasEducation && hasCourseworkLine,
+    experience: /experience|project|employment|work history/.test(headerLines),
+  };
+}
+
+const PLACEMENT_LABELS: Record<KeywordPlacement, string> = {
+  skill: "Add as skill",
+  coursework: "Add as relevant coursework",
+  experience: "Add to experience",
+};
+
+function placementOptionsForResume(resume: string): KeywordPlacement[] {
+  const sections = detectResumeSections(resume);
+  const options: KeywordPlacement[] = [];
+  if (sections.skill) options.push("skill");
+  if (sections.coursework) options.push("coursework");
+  if (sections.experience) options.push("experience");
+  // Fallback: if we could not detect any structure, offer all so the feature
+  // still works rather than leaving the user with no way to add a keyword.
+  return options.length > 0 ? options : ["skill", "coursework", "experience"];
+}
 
 export default function GenerateClient() {
   const [resumeText, setResumeText] = useState("");
@@ -38,23 +123,56 @@ export default function GenerateClient() {
   const [clearingResume, setClearingResume] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<"" | "docx" | "pdf">("");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [placements, setPlacements] = useState<Record<string, KeywordPlacement | "none">>({});
+  const [refining, setRefining] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [credits, setCredits] = useState<number | null>(null);
+  const [surveyCompleted, setSurveyCompleted] = useState(false);
+  const [surveyOpen, setSurveyOpen] = useState(false);
+  const [surveySubmitting, setSurveySubmitting] = useState(false);
+  const [surveyAnswers, setSurveyAnswers] = useState({ useful: "", missing: "", recommend: "" });
+
+  // Reset keyword choices whenever a fresh result or language is shown.
+  useEffect(() => {
+    setPlacements({});
+  }, [result, activeLang]);
+
+  const refreshCredits = useCallback(async () => {
+    try {
+      const res = await fetch("/api/credits");
+      if (!res.ok) return;
+      const data = await res.json();
+      setCredits(typeof data.credits === "number" ? data.credits : 0);
+      setIsRegistered(Boolean(data.signedIn) && !data.isAnonymous);
+      setSurveyCompleted(Boolean(data.surveyCompleted));
+    } catch {
+      // Non-fatal: credits just won't display.
+    }
+  }, []);
 
   const loadStoredResume = useCallback(async () => {
     setResumeLoading(true);
     try {
       const supabase = createClient();
-      const {
+      let {
         data: { user },
       } = await supabase.auth.getUser();
 
+      // Guests get a frictionless anonymous session so they can try without
+      // signing up. Requires "Anonymous sign-ins" enabled in Supabase.
       if (!user) {
-        setIsLoggedIn(false);
+        const { data: anon } = await supabase.auth.signInAnonymously();
+        user = anon.user ?? null;
+      }
+
+      if (!user) {
+        setIsRegistered(false);
         return;
       }
 
-      setIsLoggedIn(true);
+      setIsRegistered(!user.is_anonymous);
       setCurrentUserId(user.id);
+      void refreshCredits();
 
       const { data, error: profileError } = await supabase
         .from("user_profiles")
@@ -119,7 +237,7 @@ export default function GenerateClient() {
     } finally {
       setResumeLoading(false);
     }
-  }, [userName]);
+  }, [userName, refreshCredits]);
 
   useEffect(() => {
     void loadStoredResume();
@@ -212,11 +330,19 @@ export default function GenerateClient() {
     }
 
     const supabase = createClient();
-    const {
+    let {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      setError("Sign in or create an account to generate documents.");
+      const { data: anon } = await supabase.auth.signInAnonymously();
+      user = anon.user ?? null;
+    }
+    if (!user) {
+      setError("Couldn't start a session. Please sign in to continue.");
+      return;
+    }
+    if (credits !== null && credits <= 0) {
+      // The out-of-credits panel is already shown.
       return;
     }
 
@@ -232,9 +358,15 @@ export default function GenerateClient() {
         body: JSON.stringify({ resumeText, jobLink, jobDescription, language }),
       });
       const data = await res.json();
+      if (res.status === 402) {
+        setCredits(0);
+        await refreshCredits();
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Generation failed.");
 
       setResult(data);
+      if (typeof data.credits === "number") setCredits(data.credits);
       setActiveLang(data.docs.en ? "en" : "zh");
       setActiveTab("resume");
 
@@ -307,6 +439,91 @@ export default function GenerateClient() {
     }
   }
 
+  async function submitSurvey() {
+    setSurveySubmitting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/survey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: surveyAnswers }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't submit the survey.");
+      if (typeof data.credits === "number") setCredits(data.credits);
+      setSurveyCompleted(true);
+      setSurveyOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't submit the survey.");
+    } finally {
+      setSurveySubmitting(false);
+    }
+  }
+
+  const missingKeywords = result?.docs[activeLang]?.missingKeywords ?? [];
+  const outOfCredits = credits !== null && credits <= 0;
+  const activeResume = result?.docs[activeLang]?.resume ?? "";
+  const placementOptions = activeResume ? placementOptionsForResume(activeResume) : [];
+
+  async function applyKeywords() {
+    const doc = result?.docs[activeLang];
+    if (!doc) return;
+
+    const additions = Object.entries(placements)
+      .filter(([keyword, placement]) => placement !== "none" && missingKeywords.includes(keyword))
+      .map(([keyword, placement]) => ({ keyword, placement: placement as KeywordPlacement }));
+
+    if (additions.length === 0) {
+      setError("Choose how to add at least one keyword (skill, coursework, or experience).");
+      return;
+    }
+
+    setError("");
+    setRefining(true);
+
+    try {
+      const res = await fetch("/api/refine-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume: doc.resume,
+          language: activeLang,
+          additions,
+          resumeText,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't update the resume.");
+
+      const appliedKeywords = additions.map((a) => a.keyword);
+
+      setResult((prev) => {
+        if (!prev) return prev;
+        const prevDoc = prev.docs[activeLang];
+        if (!prevDoc) return prev;
+        return {
+          ...prev,
+          docs: {
+            ...prev.docs,
+            [activeLang]: {
+              ...prevDoc,
+              resume: data.resume,
+              missingKeywords: (prevDoc.missingKeywords ?? []).filter(
+                (k) => !appliedKeywords.includes(k)
+              ),
+            },
+          },
+        };
+      });
+      setPlacements({});
+      setActiveTab("resume");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't update the resume.");
+    } finally {
+      setRefining(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-5 py-10">
       <ResumePreviewModal
@@ -325,8 +542,13 @@ export default function GenerateClient() {
       />
 
       <AppHeader tagline="Upload a resume and job description to generate tailored documents.">
-        <div className="flex flex-wrap gap-2">
-          {isLoggedIn ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {credits !== null && (
+            <span className="rounded-full bg-[#f5f3ff] px-3 py-1.5 text-sm font-semibold text-[#5b21b6]">
+              {credits} credit{credits === 1 ? "" : "s"}
+            </span>
+          )}
+          {isRegistered ? (
             <Link href="/dashboard">
               <Button variant="secondary">Profile</Button>
             </Link>
@@ -469,9 +691,89 @@ export default function GenerateClient() {
           </div>
         </div>
 
-        <Button onClick={generate} disabled={loading} className="mt-6 w-full">
-          {loading ? "Tailoring your documents…" : "Generate resume + cover letter"}
-        </Button>
+        {!outOfCredits && (
+          <Button onClick={generate} disabled={loading} className="mt-6 w-full">
+            {loading ? "Tailoring your documents…" : "Generate resume + cover letter"}
+          </Button>
+        )}
+
+        {outOfCredits && !isRegistered && (
+          <div className="mt-6 rounded-xl border border-[#7c3aed] bg-[#f5f3ff] p-4">
+            <p className="font-bold text-slate-900">You&apos;ve used your 3 free tries</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Create a free account to get 30 more generations.
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              <Link href="/signup">
+                <Button className="w-full">Sign up free</Button>
+              </Link>
+              <GoogleButton next="/generate" label="Sign up with Google" />
+              <Link href="/login?next=/generate">
+                <Button variant="secondary" className="w-full">
+                  I already have an account
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {outOfCredits && isRegistered && (
+          <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <p className="font-bold text-slate-900">You&apos;re out of credits</p>
+            <p className="mt-1 text-sm text-slate-600">
+              {surveyCompleted
+                ? "Thanks for your feedback! More ways to get credits are coming soon."
+                : "Take a 2-minute survey to earn +10 credits, or buy more."}
+            </p>
+
+            {!surveyOpen && (
+              <div className="mt-3 flex flex-col gap-2">
+                {!surveyCompleted && (
+                  <Button className="w-full" onClick={() => setSurveyOpen(true)}>
+                    Take survey for +10 credits
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => setError("Paid credits are coming soon.")}
+                >
+                  Buy more credits (coming soon)
+                </Button>
+              </div>
+            )}
+
+            {surveyOpen && (
+              <div className="mt-3 space-y-3">
+                <Textarea
+                  label="What did you find most useful?"
+                  rows={2}
+                  value={surveyAnswers.useful}
+                  onChange={(e) => setSurveyAnswers((p) => ({ ...p, useful: e.target.value }))}
+                />
+                <Textarea
+                  label="What was missing or confusing?"
+                  rows={2}
+                  value={surveyAnswers.missing}
+                  onChange={(e) => setSurveyAnswers((p) => ({ ...p, missing: e.target.value }))}
+                />
+                <Textarea
+                  label="Would you recommend this app? Why or why not?"
+                  rows={2}
+                  value={surveyAnswers.recommend}
+                  onChange={(e) => setSurveyAnswers((p) => ({ ...p, recommend: e.target.value }))}
+                />
+                <Button
+                  className="w-full"
+                  onClick={() => void submitSurvey()}
+                  disabled={surveySubmitting}
+                >
+                  {surveySubmitting ? "Submitting…" : "Submit and get +10 credits"}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       <ErrorBanner message={error} />
@@ -485,7 +787,43 @@ export default function GenerateClient() {
           {activeTab === "resume" && result.docs[activeLang]?.tailoringSummary && (
             <div className="border-b border-slate-200 bg-amber-50 px-5 py-3 text-sm leading-relaxed text-slate-700">
               <p className="mb-1 font-semibold text-slate-800">Tailoring notes</p>
-              <pre className="m-0 whitespace-pre-wrap font-sans">{result.docs[activeLang]?.tailoringSummary}</pre>
+              <TailoringSummary text={result.docs[activeLang]?.tailoringSummary ?? ""} />
+            </div>
+          )}
+
+          {activeTab === "resume" && missingKeywords.length > 0 && (
+            <div className="border-b border-slate-200 bg-white px-5 py-4">
+              <p className="font-semibold text-slate-800">Add missing keywords</p>
+              <p className="mt-1 mb-3 text-xs text-slate-500">
+                Choose how to add any keyword you genuinely have. The resume updates automatically.
+              </p>
+              <div className="space-y-2">
+                {missingKeywords.map((kw) => (
+                  <div key={kw} className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{kw}</span>
+                    <select
+                      value={placements[kw] ?? "none"}
+                      onChange={(e) =>
+                        setPlacements((p) => ({
+                          ...p,
+                          [kw]: e.target.value as KeywordPlacement | "none",
+                        }))
+                      }
+                      className="shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                    >
+                      <option value="none">Don&apos;t add</option>
+                      {placementOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {PLACEMENT_LABELS[opt]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <Button onClick={() => void applyKeywords()} disabled={refining} className="mt-3 w-full">
+                {refining ? "Updating resume…" : "Apply selected keywords"}
+              </Button>
             </div>
           )}
 

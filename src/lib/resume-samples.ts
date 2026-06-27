@@ -19,7 +19,59 @@ interface ResumeSampleStrategy {
   emphasis: string[];
   tone: string[];
   coverLetterNotes: string[];
+  // What the body of the cover letter should emphasize for this industry.
+  // Different industries care about different things, so the letter should
+  // not use one fixed formula. These notes steer the focus of the body.
+  coverLetterFocus: string[];
 }
+
+// The Stanford guide groups cover letters into situational TYPES, each with a
+// slightly different opening and purpose. The app only knows the job text, so
+// we infer between the two types that actually apply to an online application:
+// a response to a full-time job listing, or a response to an internship listing.
+type CoverLetterType = "job-listing" | "internship";
+
+interface CoverLetterTypeStrategy {
+  id: CoverLetterType;
+  label: string;
+  openingGuidance: string[];
+  structureGuidance: string[];
+}
+
+const COVER_LETTER_TYPES: Record<CoverLetterType, CoverLetterTypeStrategy> = {
+  "job-listing": {
+    id: "job-listing",
+    label: "Letter of Application in Response to a Job Listing (Stanford sample #1)",
+    openingGuidance: [
+      "Open by naming the exact position and stating that this letter and the attached resume are the candidate's application for it.",
+      "Say where the role was seen if the job link or description implies a source, otherwise keep it simple.",
+      "In one sentence, state why the candidate's skills, academic training, and experience fit this specific role.",
+    ],
+    structureGuidance: [
+      "Use 3 to 4 body paragraphs total.",
+      "Body 1: the degree or background and the broad skills it built that the role needs.",
+      "Body 2: one concrete, relevant experience explained in real detail, with what was done and the result.",
+      "Optional body 3: a second concrete experience or a leadership example, only if there is real content for it.",
+      "Closing: restate fit modestly and invite a conversation or interview.",
+    ],
+  },
+  internship: {
+    id: "internship",
+    label: "Letter of Application in Response to an Internship Listing (Stanford sample #2)",
+    openingGuidance: [
+      "Open by stating the candidate is writing to apply for the specific internship, and where it was posted if known.",
+      "Name the candidate's year and major and a genuine, specific reason for interest in this company or field.",
+      "Show early-career motivation and direction rather than claiming senior expertise.",
+    ],
+    structureGuidance: [
+      "Use 3 to 4 short body paragraphs total.",
+      "Body 1: genuine interest in the field or company, tied to something concrete, not generic enthusiasm.",
+      "Body 2: the most relevant prior experience (internship, project, coursework, or campus role) and what it prepared the candidate to do.",
+      "Optional body 3: one specific detail about the company's work or product that shows the candidate did their homework.",
+      "Closing: express availability for an interview and thank the reader.",
+    ],
+  },
+};
 
 const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
   internship: {
@@ -43,6 +95,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
       "Explain why this internship is a strong next step.",
       "Connect coursework and hands-on experience to immediate contribution.",
     ],
+    coverLetterFocus: [
+      "Lead with motivation and direction: why this field and this team, grounded in something real.",
+      "Show transferable readiness from coursework, projects, campus roles, or part-time work.",
+      "Keep claims modest and potential-focused; do not overstate seniority.",
+    ],
   },
   business: {
     id: "business",
@@ -64,6 +121,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
     coverLetterNotes: [
       "Reference why the company and role match the candidate’s trajectory.",
       "Stress analytical thinking, cross-functional execution, and business communication.",
+    ],
+    coverLetterFocus: [
+      "Emphasize quantified impact, ownership, and structured problem solving.",
+      "Show business judgment and stakeholder or client communication.",
+      "Tie one analytical or operational result directly to what the role needs.",
     ],
   },
   engineering: {
@@ -87,6 +149,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
       "Point to the most relevant technical work and why it maps to the role.",
       "Keep the letter specific and practical, not overly narrative.",
     ],
+    coverLetterFocus: [
+      "Lead with concrete technical work: what was built, optimized, debugged, or delivered, and with which tools.",
+      "Name the 2 to 4 most relevant technologies, not a laundry list.",
+      "Keep the tone practical and evidence-based rather than narrative.",
+    ],
   },
   research: {
     id: "research",
@@ -108,6 +175,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
     coverLetterNotes: [
       "Focus on research fit, methods, and curiosity tied to the lab or team.",
       "Mention one or two technically relevant experiences in detail.",
+    ],
+    coverLetterFocus: [
+      "Emphasize research questions, methods, analysis, and rigor over generic teamwork.",
+      "Show intellectual curiosity tied to the specific lab, team, or problem area.",
+      "Detail one or two relevant studies or projects, including the approach and finding.",
     ],
   },
   policy: {
@@ -131,6 +203,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
       "Tie the candidate’s motivation to the mission and to relevant execution experience.",
       "Show knowledge of the issue area and practical contribution.",
     ],
+    coverLetterFocus: [
+      "Open with genuine mission alignment, tied to a real experience rather than sentiment.",
+      "Emphasize writing, research, stakeholder engagement, and program execution.",
+      "Show knowledge of the issue area and a concrete way the candidate can contribute.",
+    ],
   },
   healthcare: {
     id: "healthcare",
@@ -152,6 +229,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
     coverLetterNotes: [
       "Connect motivation for the field with practical health-related work.",
       "Show care, reliability, and readiness to contribute in structured environments.",
+    ],
+    coverLetterFocus: [
+      "Connect motivation for the field with concrete clinical, research, or patient-facing work.",
+      "Emphasize responsibility, empathy, rigor, and trustworthiness through real actions.",
+      "Show readiness to contribute reliably within structured, compliant environments.",
     ],
   },
   arts: {
@@ -175,6 +257,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
       "Show genuine interest in the brand, audience, or creative direction.",
       "Use vivid but professional language tied to actual work.",
     ],
+    coverLetterFocus: [
+      "Open with specific, genuine interest in the brand, audience, or creative direction.",
+      "Emphasize content, communication, campaigns, events, or production with real outputs.",
+      "Use vivid but professional language; keep it scannable for non-creative readers.",
+    ],
   },
   international: {
     id: "international",
@@ -196,6 +283,11 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
     coverLetterNotes: [
       "Tie international exposure directly to the role, region, or issue area.",
       "Show language ability and cross-cultural judgment when relevant.",
+    ],
+    coverLetterFocus: [
+      "Tie international, cross-cultural, or language exposure directly to the role or region.",
+      "Emphasize research, fieldwork, and stakeholder navigation across contexts.",
+      "Show composure and analytical judgment rather than grandiose claims.",
     ],
   },
   general: {
@@ -219,8 +311,28 @@ const SAMPLE_LIBRARY: Record<SampleId, Omit<ResumeSampleStrategy, "reason">> = {
       "Use a standard application-letter structure.",
       "Be specific about fit and keep the letter concise.",
     ],
+    coverLetterFocus: [
+      "Use a clean, standard application-letter structure.",
+      "Lead with the strongest, most relevant evidence of fit.",
+      "Be specific and concise; cut anything that could apply to any company.",
+    ],
   },
 };
+
+function pickCoverLetterType(jobLink: string, jobDescription: string): CoverLetterType {
+  const combined = `${jobLink}\n${jobDescription}`.toLowerCase();
+  const internshipSignals = countMatches(combined, [
+    "intern",
+    "internship",
+    "co-op",
+    "co op",
+    "summer analyst",
+    "summer associate",
+    "trainee",
+    "apprentice",
+  ]);
+  return internshipSignals > 0 ? "internship" : "job-listing";
+}
 
 function countMatches(text: string, keywords: string[]) {
   const normalized = text.toLowerCase();
@@ -390,5 +502,26 @@ export function buildResumeSampleGuidance(
     ...strategy.tone.map((item) => `- ${item}`),
     "Cover letter guidance from the reference set:",
     ...strategy.coverLetterNotes.map((item) => `- ${item}`),
+  ].join("\n");
+}
+
+export function buildCoverLetterGuidance(
+  profile: FullProfile,
+  jobLink: string,
+  jobDescription: string
+) {
+  const strategy = pickResumeSampleStrategy(profile, jobLink, jobDescription);
+  const type = COVER_LETTER_TYPES[pickCoverLetterType(jobLink, jobDescription)];
+
+  return [
+    `COVER LETTER TYPE TO MODEL: ${type.label}`,
+    "Different situations call for different openings and emphasis. Follow the type guidance below; do not force a single fixed template.",
+    "Opening guidance for this type:",
+    ...type.openingGuidance.map((item) => `- ${item}`),
+    "Body structure guidance for this type:",
+    ...type.structureGuidance.map((item) => `- ${item}`),
+    `INDUSTRY FOCUS TO EMPHASIZE: ${strategy.label}`,
+    "Different industries value different evidence. Steer the body of the letter toward what this industry cares about:",
+    ...strategy.coverLetterFocus.map((item) => `- ${item}`),
   ].join("\n");
 }

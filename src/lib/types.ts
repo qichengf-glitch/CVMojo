@@ -58,6 +58,14 @@ export interface GeneratedDoc {
   resume: string;
   coverLetter: string;
   tailoringSummary?: string;
+  missingKeywords?: string[];
+}
+
+export type KeywordPlacement = "skill" | "coursework" | "experience";
+
+export interface KeywordAddition {
+  keyword: string;
+  placement: KeywordPlacement;
 }
 
 export interface GenerateResult {

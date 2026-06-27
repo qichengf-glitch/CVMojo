@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { hasSupabasePublicEnv, SUPABASE_ENV_ERROR } from "@/lib/supabase/env";
 import { AuthShell, Button, ErrorBanner, Input, PasswordInput, SetupBanner } from "@/components/ui";
+import { GoogleButton } from "@/components/google-button";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -73,6 +74,14 @@ export default function SignupPage() {
           {loading ? "Creating account…" : "Sign up"}
         </Button>
       </form>
+      {isSupabaseConfigured && (
+        <div className="mt-4">
+          <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
+            <span className="h-px flex-1 bg-slate-200" /> or <span className="h-px flex-1 bg-slate-200" />
+          </div>
+          <GoogleButton next="/generate" label="Sign up with Google" />
+        </div>
+      )}
       <p className="mt-4 text-center text-sm text-slate-500">
         Already have an account?{" "}
         <Link href="/login" className="font-semibold text-[#7c3aed]">

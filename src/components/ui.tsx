@@ -87,12 +87,14 @@ export function AuthShell({
   return (
     <div className="flex min-h-screen items-center justify-center bg-white px-5 py-12">
       <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-block">
+        <div className="mb-8">
+          <Link href="/" className="inline-block -ml-1">
             <Logo />
           </Link>
-          <h1 className="mt-6 text-2xl font-bold text-slate-900">{title}</h1>
-          <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
+          <div className="mt-6 text-center">
+            <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+            <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
+          </div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">{children}</div>
       </div>
