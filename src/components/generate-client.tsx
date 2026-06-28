@@ -17,6 +17,8 @@ import {
 } from "@/lib/stored-resume";
 import { AppHeader, Button, Card, ErrorBanner, Input, Textarea } from "@/components/ui";
 import { GoogleButton } from "@/components/google-button";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useI18n } from "@/lib/i18n";
 import { FadeIn } from "@/components/motion";
 
 function TailoringSummary({ text }: { text: string }) {
@@ -86,12 +88,6 @@ function detectResumeSections(resume: string): {
   };
 }
 
-const PLACEMENT_LABELS: Record<KeywordPlacement, string> = {
-  skill: "Add as skill",
-  coursework: "Add as relevant coursework",
-  experience: "Add to experience",
-};
-
 function placementOptionsForResume(resume: string): KeywordPlacement[] {
   const sections = detectResumeSections(resume);
   const options: KeywordPlacement[] = [];
@@ -104,6 +100,7 @@ function placementOptionsForResume(resume: string): KeywordPlacement[] {
 }
 
 export default function GenerateClient() {
+  const { t } = useI18n();
   const [resumeText, setResumeText] = useState("");
   const [resumeFileName, setResumeFileName] = useState("");
   const [resumeMimeType, setResumeMimeType] = useState("");
@@ -127,10 +124,40 @@ export default function GenerateClient() {
   const [refining, setRefining] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
-  const [surveyCompleted, setSurveyCompleted] = useState(false);
-  const [surveyOpen, setSurveyOpen] = useState(false);
-  const [surveySubmitting, setSurveySubmitting] = useState(false);
-  const [surveyAnswers, setSurveyAnswers] = useState({ useful: "", missing: "", recommend: "" });
+
+  // Capture a referral code from the landing URL (?ref=...) so we can credit the
+  // referrer once this visitor becomes a registered user.
+  useEffect(() => {
+    try {
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (ref) localStorage.setItem("cvmojo_ref", ref);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Once the visitor is a real (registered) user, claim any pending referral.
+  useEffect(() => {
+    if (!isRegistered) return;
+    let ref: string | null = null;
+    try {
+      ref = localStorage.getItem("cvmojo_ref");
+    } catch {
+      // ignore
+    }
+    if (!ref) return;
+    void fetch("/api/referral", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ referrer: ref }),
+    }).finally(() => {
+      try {
+        localStorage.removeItem("cvmojo_ref");
+      } catch {
+        // ignore
+      }
+    });
+  }, [isRegistered]);
 
   // Reset keyword choices whenever a fresh result or language is shown.
   useEffect(() => {
@@ -144,7 +171,6 @@ export default function GenerateClient() {
       const data = await res.json();
       setCredits(typeof data.credits === "number" ? data.credits : 0);
       setIsRegistered(Boolean(data.signedIn) && !data.isAnonymous);
-      setSurveyCompleted(Boolean(data.surveyCompleted));
     } catch {
       // Non-fatal: credits just won't display.
     }
@@ -434,27 +460,6 @@ export default function GenerateClient() {
     }
   }
 
-  async function submitSurvey() {
-    setSurveySubmitting(true);
-    setError("");
-    try {
-      const res = await fetch("/api/survey", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: surveyAnswers }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't submit the survey.");
-      if (typeof data.credits === "number") setCredits(data.credits);
-      setSurveyCompleted(true);
-      setSurveyOpen(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't submit the survey.");
-    } finally {
-      setSurveySubmitting(false);
-    }
-  }
-
   const missingKeywords = result?.docs[activeLang]?.missingKeywords ?? [];
   const outOfCredits = credits !== null && credits <= 0;
   const activeResume = result?.docs[activeLang]?.resume ?? "";
@@ -536,39 +541,56 @@ export default function GenerateClient() {
         userId={currentUserId}
       />
 
-      <AppHeader tagline="Upload a resume and job description to generate tailored documents.">
-        <div className="flex flex-wrap items-center gap-2">
+      <AppHeader
+        tagline={t(
+          "Upload a resume and job description to generate tailored documents.",
+          "上传简历和职位描述，生成量身定制的文档。"
+        )}
+      >
+        <div className="flex flex-col gap-2 sm:items-end">
+          <div className="flex flex-nowrap items-center gap-2">
+            <Link href="/earn">
+              <Button variant="secondary" size="sm">{t("Earn More Credit", "获取更多积分")}</Button>
+            </Link>
+            {isRegistered ? (
+              <Link href="/dashboard">
+                <Button variant="secondary" size="sm">{t("Profile", "个人资料")}</Button>
+              </Link>
+            ) : (
+              <>
+                <Link href="/login?next=/generate">
+                  <Button variant="secondary" size="sm">{t("Sign in", "登录")}</Button>
+                </Link>
+                <Link href="/signup">
+                  <Button size="sm">{t("Sign up", "注册")}</Button>
+                </Link>
+              </>
+            )}
+            <LanguageToggle size="sm" />
+          </div>
           {credits !== null && (
             <span className="rounded-full bg-[#f5f3ff] px-3 py-1.5 text-sm font-semibold text-[#5b21b6]">
-              {credits} credit{credits === 1 ? "" : "s"}
+              {credits} {t("credits", "积分")}
             </span>
-          )}
-          {isRegistered ? (
-            <Link href="/dashboard">
-              <Button variant="secondary">Profile</Button>
-            </Link>
-          ) : (
-            <>
-              <Link href="/login?next=/generate">
-                <Button variant="secondary">Sign in</Button>
-              </Link>
-              <Link href="/signup">
-                <Button>Sign up</Button>
-              </Link>
-            </>
           )}
         </div>
       </AppHeader>
 
       <Card className="mb-6">
-        <h2 className="text-lg font-bold text-slate-900">Resume</h2>
+        <h2 className="text-lg font-bold text-slate-900">{t("Resume", "简历")}</h2>
         <p className="mt-2 text-sm text-slate-500">
-          Upload your resume for one-time generation, or leave this blank to use your saved profile.
+          {t(
+            "Upload your resume for one-time generation, or leave this blank to use your saved profile.",
+            "上传简历进行单次生成，或留空以使用已保存的个人资料。"
+          )}
         </p>
 
         {!resumeLoading && hasSavedProfile && (
           <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Saved profile available. Leave the resume blank to generate from your existing profile.
+            {t(
+              "Saved profile available. Leave the resume blank to generate from your existing profile.",
+              "已检测到保存的个人资料。留空简历即可使用现有资料生成。"
+            )}
           </div>
         )}
 
@@ -593,9 +615,11 @@ export default function GenerateClient() {
           />
           <span className="text-2xl font-bold leading-none text-[#7c3aed]">↑</span>
           <span className="mt-2 text-sm font-semibold text-[#5b21b6]">
-            {resumeLoading ? "Loading saved resume…" : "Upload resume"}
+            {resumeLoading ? t("Loading saved resume…", "正在加载已保存的简历…") : t("Upload resume", "上传简历")}
           </span>
-          <span className="text-xs text-slate-500">PDF, DOCX, or TXT — or drag it here</span>
+          <span className="text-xs text-slate-500">
+            {t("PDF, DOCX, or TXT — or drag it here", "PDF、DOCX 或 TXT —— 或拖拽到此处")}
+          </span>
         </label>
 
         {!resumeLoading && resumeFileName && (
@@ -605,7 +629,7 @@ export default function GenerateClient() {
               onClick={() => setShowResumePreview(true)}
               className="min-w-0 truncate text-left text-sm font-medium text-emerald-800"
             >
-              Resume on file: {resumeFileName}
+              {t("Resume on file:", "已保存简历：")} {resumeFileName}
             </button>
             <button
               type="button"
@@ -613,22 +637,25 @@ export default function GenerateClient() {
               disabled={clearingResume}
               className="shrink-0 text-sm font-semibold text-emerald-700 transition hover:text-emerald-900 disabled:opacity-60"
             >
-              {clearingResume ? "Clearing..." : "Clear"}
+              {clearingResume ? t("Clearing...", "清除中...") : t("Clear", "清除")}
             </button>
           </div>
         )}
 
         <div className="mt-3 flex justify-end">
           <Button variant="secondary" onClick={() => void resetResumeSource()} disabled={resetting || clearingResume}>
-            {resetting ? "Resetting..." : "Reset"}
+            {resetting ? t("Resetting...", "重置中...") : t("Reset", "重置")}
           </Button>
         </div>
 
         <div className="mt-4">
           <Textarea
-            label="Resume text"
+            label={t("Resume text", "简历文本")}
             rows={8}
-            placeholder="Upload a PDF, DOCX, or TXT resume, or paste your resume text here."
+            placeholder={t(
+              "Upload a PDF, DOCX, or TXT resume, or paste your resume text here.",
+              "上传 PDF、DOCX 或 TXT 简历，或在此粘贴简历文本。"
+            )}
             value={resumeText}
             onChange={(e) => {
               const next = e.target.value;
@@ -644,26 +671,26 @@ export default function GenerateClient() {
 
       <Card>
         <Input
-          label="Job link"
-          placeholder="https://… (optional)"
+          label={t("Job link", "职位链接")}
+          placeholder={t("https://… (optional)", "https://…（可选）")}
           value={jobLink}
           onChange={(e) => setJobLink(e.target.value)}
         />
         <div className="mt-3">
           <Textarea
-            label="Job description"
+            label={t("Job description", "职位描述")}
             rows={8}
-            placeholder="Paste the full job description"
+            placeholder={t("Paste the full job description", "粘贴完整的职位描述")}
             value={jobDescription}
             onChange={(e) => setJobDescription(e.target.value)}
           />
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Tip: paste the actual description text for best results.
+          {t("Tip: paste the actual description text for best results.", "提示：粘贴真实的职位描述文本以获得最佳效果。")}
         </p>
 
         <div className="mt-4">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">Language</span>
+          <span className="mb-2 block text-sm font-semibold text-slate-700">{t("Language", "语言")}</span>
           <div className="flex gap-2">
             <button
               type="button"
@@ -688,24 +715,28 @@ export default function GenerateClient() {
 
         {!outOfCredits && (
           <Button onClick={generate} disabled={loading} className="mt-6 w-full">
-            {loading ? "Tailoring your documents…" : "Generate resume + cover letter"}
+            {loading
+              ? t("Tailoring your documents…", "正在定制你的文档…")
+              : t("Generate resume + cover letter", "生成简历 + 求职信")}
           </Button>
         )}
 
         {outOfCredits && !isRegistered && (
           <div className="mt-6 rounded-xl border border-[#7c3aed] bg-[#f5f3ff] p-4">
-            <p className="font-bold text-slate-900">You&apos;ve used your 3 free tries</p>
+            <p className="font-bold text-slate-900">
+              {t("You've used your 3 free tries", "你已用完 3 次免费试用")}
+            </p>
             <p className="mt-1 text-sm text-slate-600">
-              Create a free account to get 30 more generations.
+              {t("Create a free account to get 30 more generations.", "创建免费账户即可再获得 30 次生成。")}
             </p>
             <div className="mt-3 flex flex-col gap-2">
               <Link href="/signup">
-                <Button className="w-full">Sign up free</Button>
+                <Button className="w-full">{t("Sign up free", "免费注册")}</Button>
               </Link>
-              <GoogleButton next="/generate" label="Sign up with Google" />
+              <GoogleButton next="/generate" label={t("Sign up with Google", "使用 Google 注册")} />
               <Link href="/login?next=/generate">
                 <Button variant="secondary" className="w-full">
-                  I already have an account
+                  {t("I already have an account", "我已有账户")}
                 </Button>
               </Link>
             </div>
@@ -714,59 +745,23 @@ export default function GenerateClient() {
 
         {outOfCredits && isRegistered && (
           <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
-            <p className="font-bold text-slate-900">You&apos;re out of credits</p>
+            <p className="font-bold text-slate-900">{t("You're out of credits", "积分已用完")}</p>
             <p className="mt-1 text-sm text-slate-600">
-              {surveyCompleted
-                ? "Thanks for your feedback! More ways to get credits are coming soon."
-                : "Take a 2-minute survey to earn +10 credits, or buy more."}
+              {t(
+                "Earn more free credits by referring friends or sharing feedback, or buy more.",
+                "通过邀请好友或填写反馈即可获得更多免费积分，也可以购买。"
+              )}
             </p>
-
-            {!surveyOpen && (
-              <div className="mt-3 flex flex-col gap-2">
-                {!surveyCompleted && (
-                  <Button className="w-full" onClick={() => setSurveyOpen(true)}>
-                    Take survey for +10 credits
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => setError("Paid credits are coming soon.")}
-                >
-                  Buy more credits (coming soon)
-                </Button>
-              </div>
-            )}
-
-            {surveyOpen && (
-              <div className="mt-3 space-y-3">
-                <Textarea
-                  label="What did you find most useful?"
-                  rows={2}
-                  value={surveyAnswers.useful}
-                  onChange={(e) => setSurveyAnswers((p) => ({ ...p, useful: e.target.value }))}
-                />
-                <Textarea
-                  label="What was missing or confusing?"
-                  rows={2}
-                  value={surveyAnswers.missing}
-                  onChange={(e) => setSurveyAnswers((p) => ({ ...p, missing: e.target.value }))}
-                />
-                <Textarea
-                  label="Would you recommend this app? Why or why not?"
-                  rows={2}
-                  value={surveyAnswers.recommend}
-                  onChange={(e) => setSurveyAnswers((p) => ({ ...p, recommend: e.target.value }))}
-                />
-                <Button
-                  className="w-full"
-                  onClick={() => void submitSurvey()}
-                  disabled={surveySubmitting}
-                >
-                  {surveySubmitting ? "Submitting…" : "Submit and get +10 credits"}
-                </Button>
-              </div>
-            )}
+            <Link href="/earn">
+              <Button className="mt-3 w-full">{t("Earn More Credit", "获取更多积分")}</Button>
+            </Link>
+            <Button
+              variant="secondary"
+              className="mt-2 w-full"
+              onClick={() => setError(t("Paid credits are coming soon.", "付费积分即将上线。"))}
+            >
+              {t("Buy more credits (coming soon)", "购买更多积分（即将上线）")}
+            </Button>
           </div>
         )}
       </Card>
@@ -776,21 +771,26 @@ export default function GenerateClient() {
       {result && (
         <FadeIn className="mt-6 overflow-hidden rounded-2xl border border-[#7c3aed]">
           <div className="border-b border-slate-200 bg-[#f5f3ff] px-5 py-3">
-            <span className="font-bold text-[#5b21b6]">Tailored for {result.company}</span>
+            <span className="font-bold text-[#5b21b6]">
+              {t("Tailored for", "为以下公司定制：")} {result.company}
+            </span>
           </div>
 
           {activeTab === "resume" && result.docs[activeLang]?.tailoringSummary && (
             <div className="border-b border-slate-200 bg-amber-50 px-5 py-3 text-sm leading-relaxed text-slate-700">
-              <p className="mb-1 font-semibold text-slate-800">Tailoring notes</p>
+              <p className="mb-1 font-semibold text-slate-800">{t("Tailoring notes", "定制说明")}</p>
               <TailoringSummary text={result.docs[activeLang]?.tailoringSummary ?? ""} />
             </div>
           )}
 
           {activeTab === "resume" && missingKeywords.length > 0 && (
             <div className="border-b border-slate-200 bg-white px-5 py-4">
-              <p className="font-semibold text-slate-800">Add missing keywords</p>
+              <p className="font-semibold text-slate-800">{t("Add missing keywords", "添加缺失的关键词")}</p>
               <p className="mt-1 mb-3 text-xs text-slate-500">
-                Choose how to add any keyword you genuinely have. The resume updates automatically.
+                {t(
+                  "Choose how to add any keyword you genuinely have. The resume updates automatically.",
+                  "选择如何添加你确实具备的关键词，简历会自动更新。"
+                )}
               </p>
               <div className="space-y-2">
                 {missingKeywords.map((kw) => (
@@ -806,10 +806,14 @@ export default function GenerateClient() {
                       }
                       className="shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
                     >
-                      <option value="none">Don&apos;t add</option>
+                      <option value="none">{t("Don't add", "不添加")}</option>
                       {placementOptions.map((opt) => (
                         <option key={opt} value={opt}>
-                          {PLACEMENT_LABELS[opt]}
+                          {opt === "skill"
+                            ? t("Add as skill", "作为技能添加")
+                            : opt === "coursework"
+                              ? t("Add as relevant coursework", "作为相关课程添加")
+                              : t("Add to experience", "添加到经历中")}
                         </option>
                       ))}
                     </select>
@@ -817,7 +821,7 @@ export default function GenerateClient() {
                 ))}
               </div>
               <Button onClick={() => void applyKeywords()} disabled={refining} className="mt-3 w-full">
-                {refining ? "Updating resume…" : "Apply selected keywords"}
+                {refining ? t("Updating resume…", "正在更新简历…") : t("Apply selected keywords", "应用所选关键词")}
               </Button>
             </div>
           )}
@@ -866,7 +870,7 @@ export default function GenerateClient() {
 
           <div className="flex gap-2 border-t border-slate-200 p-4">
             <Button variant="secondary" className="flex-1" onClick={copy}>
-              Copy text
+              {t("Copy text", "复制文本")}
             </Button>
             <Button
               variant="secondary"
@@ -874,14 +878,14 @@ export default function GenerateClient() {
               onClick={() => void download("docx")}
               disabled={exportingFormat !== ""}
             >
-              {exportingFormat === "docx" ? "Exporting DOCX..." : "Download DOCX"}
+              {exportingFormat === "docx" ? t("Exporting DOCX...", "正在导出 DOCX...") : t("Download DOCX", "下载 DOCX")}
             </Button>
             <Button
               className="flex-1"
               onClick={() => void download("pdf")}
               disabled={exportingFormat !== ""}
             >
-              {exportingFormat === "pdf" ? "Exporting PDF..." : "Download PDF"}
+              {exportingFormat === "pdf" ? t("Exporting PDF...", "正在导出 PDF...") : t("Download PDF", "下载 PDF")}
             </Button>
           </div>
         </FadeIn>

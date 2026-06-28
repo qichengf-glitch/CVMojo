@@ -7,8 +7,11 @@ import { createClient } from "@/lib/supabase/client";
 import { hasSupabasePublicEnv, SUPABASE_ENV_ERROR } from "@/lib/supabase/env";
 import { AuthShell, Button, ErrorBanner, Input, PasswordInput, SetupBanner } from "@/components/ui";
 import { GoogleButton } from "@/components/google-button";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useI18n } from "@/lib/i18n";
 
 export default function SignupPage() {
+  const { t } = useI18n();
   const router = useRouter();
   const isSupabaseConfigured = hasSupabasePublicEnv();
   const [email, setEmail] = useState("");
@@ -27,7 +30,7 @@ export default function SignupPage() {
     }
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(t("Passwords do not match.", "两次输入的密码不一致。"));
       return;
     }
 
@@ -44,26 +47,32 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthShell title="Create your account" subtitle="Sign up to generate tailored resumes. Profile setup is optional.">
+    <AuthShell
+      title={t("Create your account", "创建账户")}
+      subtitle={t("Sign up to generate tailored resumes. Profile setup is optional.", "注册即可生成量身定制的简历。资料设置为可选项。")}
+    >
+      <div className="mb-4 flex justify-end">
+        <LanguageToggle />
+      </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         {!isSupabaseConfigured && <SetupBanner message={SUPABASE_ENV_ERROR} />}
-        <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <Input label={t("Email", "邮箱")} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <PasswordInput
-          label="Password"
+          label={t("Password", "密码")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           minLength={6}
           required
         />
         <PasswordInput
-          label="Confirm password"
+          label={t("Confirm password", "确认密码")}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           minLength={6}
           required
         />
         {confirmPassword && password !== confirmPassword && (
-          <p className="text-sm text-red-600">Passwords do not match.</p>
+          <p className="text-sm text-red-600">{t("Passwords do not match.", "两次输入的密码不一致。")}</p>
         )}
         <ErrorBanner message={error} />
         <Button
@@ -71,7 +80,7 @@ export default function SignupPage() {
           className="w-full"
           disabled={loading || !isSupabaseConfigured || password !== confirmPassword}
         >
-          {loading ? "Creating account…" : "Sign up"}
+          {loading ? t("Creating account…", "正在创建账户…") : t("Sign up", "注册")}
         </Button>
       </form>
       {isSupabaseConfigured && (
