@@ -123,13 +123,15 @@ ${candidateGuidance}
 
 RESUME HARD RULES:
 - This is a TAILORING task, not a writing-from-scratch task. The source resume or profile is the template. Do NOT design a new resume.
-- The source resume's own format is the format. There is no fixed house template. Match whatever structure THIS candidate used; a different uploaded resume should produce a differently structured output.
-- Keep the candidate's existing section structure, section order, headings, and overall information architecture exactly as they are in the source.
-- Reproduce each entry header line in the SAME shape the source used. If the source puts the title, organization, location, and date on one line, keep them on one line in that same order. Keep the date at the same position (for example trailing at the end of the line if that is how the source wrote it).
-- Keep every date string EXACTLY as written in the source (for example "June-Aug 2024", "May 2026", "Nov 2025 - Current"). Do not reformat, expand, abbreviate, or re-punctuate dates.
-- Do not add, remove, or rearrange the commas and separators in entry header lines. Preserve the punctuation style the source used.
-- Make small, surgical edits only: reorder bullets within a role, swap in job keywords where honest, tighten phrasing, surface relevant tools, and re-weight the visible skills section. Leave most wording as-is.
-- Tailor ONLY the bullet and skill CONTENT. Headers, organizations, titles, locations, dates, degrees, and section names stay as they are.
+- Keep the candidate's existing SECTIONS and their order (for example Education, Experience, Projects, Skills) and keep all real facts. Produce a clean, well-structured, tailored version of THIS candidate's resume.
+- TWO-COLUMN ENTRY LAYOUT (use for EVERY entry header): write ONE line with the LEFT part, then a single TAB character (a literal tab), then the RIGHT part:
+  - Experience and Projects: [job title or role]\t[company or organization, location if known, dates]
+  - Education: [degree and field of study]\t[school name, dates]
+  So the role or degree is on the LEFT and the organization together with its dates is RIGHT-aligned. Use the TAB only to separate the left part from the single right-aligned part; never use it inside sentences or bullets.
+- Put exactly one blank line between separate entries so they are clearly separated.
+- Keep dates readable (for example "June 2024 - August 2024", "May 2026", "Nov 2025 - Present"). Do not invent or alter real dates.
+- Make small, surgical wording edits only: reorder bullets within a role, swap in honest job keywords, tighten phrasing, surface relevant tools, and re-weight the visible skills section.
+- Do not change real facts: company names, schools, titles, locations, dates, degrees, and section names stay accurate.
 - Preserve verbatim, unless tailoring truly requires a small change: company names, school names, role titles, dates, locations, degrees, and any bullet that already fits the job.
 - Never invent experience, employers, dates, metrics, or skills. Use only what is in the profile or source resume.
 - You may reasonably ESTIMATE a metric only if the profile implies scale, and phrase it honestly (e.g. "100+", "~15%"). If no basis exists, omit the number rather than fabricate.
@@ -214,6 +216,44 @@ COMPANY: Identify from job description or link. If unclear, use "Company".
 
 Respond with ONLY JSON in this shape:
 ${shape}`;
+}
+
+// Used for the 1:1 DOCX path: tailor ONLY the content lines (experience/project
+// bullets and skills/coursework lists) to the job. The document's format is never
+// touched; we only change the wording of these lines in place.
+export function buildTailorBulletsPrompt(
+  bullets: string[],
+  jobLink: string,
+  jobDescription: string,
+  condense = false
+): string {
+  return `You are tailoring a resume's CONTENT lines to a specific job. Each item below is one editable line: an experience or project bullet, or a skills / coursework / tools list. You edit ONLY the wording. You never change the document's structure or formatting.
+
+Job link: ${jobLink || "(none)"}
+Job description:
+---
+${jobDescription || "(none)"}
+---
+
+CONTENT LINES (JSON array, keep this EXACT order and count):
+${JSON.stringify(bullets, null, 2)}
+
+RULES:
+- Return EXACTLY the same number of lines, in the same order. One tailored string per input line.
+- Keep every real fact. Never invent employers, titles, dates, metrics, tools, or achievements that are not already implied by the line. This must stay truthful.
+- For BULLET lines: surface job-relevant keywords that are honestly supported, lead with impact, tighten phrasing. If a bullet already fits, return it nearly unchanged.
+- For SKILLS / COURSEWORK / TOOLS lines (they usually contain a label like "Skills:" or "Relevant Coursework:" followed by a list): keep the label, then reorder the items so the most job-relevant ones come first, and you may add an item the candidate clearly has. Do not invent skills. Keep the same label wording.
+- Write in the SAME language as each original line. Do not translate. Keep tool, software, and programming names in their original form.
+- Do NOT add a bullet character; return only the line text.
+- No em dashes or en dashes. Use commas, periods, or "and".
+${
+  condense
+    ? "- The resume is longer than one page. Make each line LEANER: cut filler words and keep only the strongest, most relevant point, while preserving the core achievement. Aim for noticeably shorter lines than the originals."
+    : "- Keep each line close to its original length so the layout does not shift."
+}
+
+Respond with ONLY JSON in this exact shape:
+{"bullets": ["tailored line 1", "tailored line 2", "..."]}`;
 }
 
 export function buildRefineResumePrompt(

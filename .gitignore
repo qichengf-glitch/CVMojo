@@ -12,4 +12,8 @@ tsconfig.tsbuildinfo
 .exptest/
 robust-test.js
 run-export.js
+dtest.js
+dtest2.js
+dtest3.js
+resume-and-cover-letter-examples.pdf
 .vercel

@@ -76,16 +76,19 @@ function drawResumePdf(doc: PDFKit.PDFDocument, parsed: ParsedResume, layout: La
 
     for (const item of block.items) {
       if (item.kind === "entry") {
+        doc.y += 3; // space between entries
         doc.fontSize(layout.bodySize).font("Times-Bold");
         const y = doc.y;
         if (item.dateLeft) {
           doc.text(`${item.date}    ${item.text}`, left, y, { width: contentWidth, lineGap });
         } else {
-          const dateWidth = doc.widthOfString(item.date);
-          doc.text(item.text, left, y, { width: contentWidth - dateWidth - 6, lineGap });
-          const afterY = doc.y;
-          doc.text(item.date, right - dateWidth, y, { width: dateWidth + 1, lineBreak: false });
-          doc.y = afterY;
+          // Right column capped at half the width so a long org/date never squeezes
+          // the left part to nothing. Both sides wrap within their column.
+          const rightWidth = Math.min(doc.widthOfString(item.date) + 2, contentWidth * 0.5);
+          doc.text(item.text, left, y, { width: contentWidth - rightWidth - 10, lineGap });
+          const leftEnd = doc.y;
+          doc.text(item.date, right - rightWidth, y, { width: rightWidth, align: "right", lineGap });
+          doc.y = Math.max(leftEnd, doc.y);
         }
       } else if (item.kind === "bullet") {
         doc.fontSize(layout.bodySize).font("Times-Roman");
@@ -229,7 +232,7 @@ function renderBlockDocx(
         out.push(
           new Paragraph({
             tabStops: [{ type: TabStopType.RIGHT, position: contentWidthTw }],
-            spacing: { after: 0 },
+            spacing: { before: 80, after: 0 },
             children: [
               new TextRun({ text: item.text, bold: true, font, size: hp(layout.bodySize) }),
               new TextRun({ children: [new Tab()], font, size: hp(layout.bodySize) }),

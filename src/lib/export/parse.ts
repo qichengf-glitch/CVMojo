@@ -293,6 +293,17 @@ export function parseResume(content: string): ParsedResume {
       currentItems.push({ kind: "indent", text: stripped });
       continue;
     }
+    // Two-column entry header: "left <TAB> right". The right part (organization
+    // and dates) is right-aligned; the left part (role/degree) stays on the left.
+    const tabIdx = stripped.indexOf("\t");
+    if (tabIdx > 0) {
+      const left = stripped.slice(0, tabIdx).trim();
+      const right = stripped.slice(tabIdx + 1).replace(/\t+/g, " ").trim();
+      if (left && right) {
+        currentItems.push({ kind: "entry", text: left, date: right });
+        continue;
+      }
+    }
     const trailing = parseTrailingDate(stripped);
     if (trailing) {
       currentItems.push({ kind: "entry", text: trailing.text, date: trailing.date });

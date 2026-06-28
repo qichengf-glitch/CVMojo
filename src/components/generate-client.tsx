@@ -104,6 +104,8 @@ export default function GenerateClient() {
   const [resumeText, setResumeText] = useState("");
   const [resumeFileName, setResumeFileName] = useState("");
   const [resumeMimeType, setResumeMimeType] = useState("");
+  // Keep the original uploaded file so a .docx can be tailored 1:1 (in place).
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [jobLink, setJobLink] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [lang, setLang] = useState<"en" | "zh">("en");
@@ -281,6 +283,7 @@ export default function GenerateClient() {
       setResumeText(text);
       setResumeFileName(file.name);
       setResumeMimeType(file.type);
+      setResumeFile(file);
       setShowResumePreview(false);
       if (!userName.trim()) {
         const guessed = guessNameFromResumeText(text);
@@ -317,6 +320,7 @@ export default function GenerateClient() {
       setResumeText("");
       setResumeFileName("");
       setResumeMimeType("");
+      setResumeFile(null);
       setShowResumePreview(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't clear the current resume.");
@@ -333,6 +337,7 @@ export default function GenerateClient() {
       setResumeText("");
       setResumeFileName("");
       setResumeMimeType("");
+      setResumeFile(null);
       setResult(null);
       setActiveLang("en");
       setActiveTab("resume");
@@ -420,6 +425,15 @@ export default function GenerateClient() {
     navigator.clipboard.writeText(currentContent());
   }
 
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function download(format: "docx" | "pdf") {
     if (!result) return;
 
@@ -429,24 +443,52 @@ export default function GenerateClient() {
     const kind = activeTab === "resume" ? "Resume" : "CoverLetter";
 
     try {
-      const res = await fetch("/api/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: currentContent(),
-          fileName: fileBase(kind, activeLang),
-          format,
-          documentType: activeTab === "resume" ? "resume" : "cover_letter",
-          language: activeLang,
-        }),
-      });
+      let blob: Blob;
 
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error || `Failed to export ${format.toUpperCase()}.`);
+      // 1:1 path: when the English resume came from an uploaded .docx, tailor the
+      // original file in place so its exact layout is preserved.
+      if (
+        format === "docx" &&
+        activeTab === "resume" &&
+        activeLang === "en" &&
+        resumeFile &&
+        resumeFile.name.toLowerCase().endsWith(".docx")
+      ) {
+        const docxBase64 = await fileToBase64(resumeFile);
+        const res = await fetch("/api/tailor-docx", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            docxBase64,
+            fileName: fileBase(kind, activeLang),
+            jobLink,
+            jobDescription,
+          }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error || "Failed to export DOCX.");
+        }
+        blob = await res.blob();
+      } else {
+        const res = await fetch("/api/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: currentContent(),
+            fileName: fileBase(kind, activeLang),
+            format,
+            documentType: activeTab === "resume" ? "resume" : "cover_letter",
+            language: activeLang,
+          }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error || `Failed to export ${format.toUpperCase()}.`);
+        }
+        blob = await res.blob();
       }
 
-      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
