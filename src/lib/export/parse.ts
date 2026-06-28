@@ -17,17 +17,49 @@ const HARVARD_SECTIONS = new Set([
 ]);
 const CHINESE_HEADINGS = new Set([
   "教育背景",
+  "教育经历",
+  "教育",
   "工作经历",
+  "工作经验",
+  "实习经历",
+  "实习经验",
   "项目经历",
   "项目经验",
-  "技能",
-  "核心技能",
-  "经验",
-  "教育",
   "项目",
+  "专业技能",
+  "技能",
+  "技能特长",
+  "核心技能",
+  "个人技能",
+  "经验",
+  "荣誉奖项",
+  "奖项荣誉",
+  "荣誉",
+  "奖项",
+  "获奖经历",
+  "证书",
+  "证书认证",
+  "资格证书",
+  "相关课程",
+  "主修课程",
+  "课程",
+  "语言能力",
+  "语言",
+  "兴趣爱好",
+  "兴趣",
+  "个人简介",
+  "自我评价",
   "求职意向",
+  "领导经历",
   "领导力",
+  "校园经历",
+  "社会实践",
+  "志愿者经历",
+  "研究经历",
+  "发表论文",
+  "论文发表",
   "其他信息",
+  "附加信息",
 ]);
 
 export function containsCjk(text: string): boolean {
@@ -123,12 +155,15 @@ function normalizeHeading(s: string): string {
 function isHarvardSection(line: string): boolean {
   const s = line.trim();
   if (!s || s.startsWith(BULLET)) return false;
-  if (HARVARD_SECTIONS.has(s) || CHINESE_HEADINGS.has(s)) return true;
+  const core = s.replace(/[:：]\s*$/, "");
+  if (HARVARD_SECTIONS.has(s) || HARVARD_SECTIONS.has(core)) return true;
+  if (CHINESE_HEADINGS.has(s) || CHINESE_HEADINGS.has(core)) return true;
 
-  const hasLetters = /[a-zA-Z一-鿿]/.test(s);
-  // ALL-CAPS short line.
-  if (hasLetters && s.toUpperCase() === s && s.length <= 40) return true;
-  // Known section name in any case: short line, no digits/date, optional colon.
+  // English ALL-CAPS heading: has Latin uppercase, no lowercase, no digits.
+  // (Must require a Latin letter so Chinese content lines are not misread as
+  // headings — Chinese text has no lowercase Latin and would pass otherwise.)
+  if (/[A-Z]/.test(s) && !/[a-z]/.test(s) && !/\d/.test(s) && s.length <= 40) return true;
+  // Known English section name in any case: short line, no digits, optional colon.
   if (s.length <= 40 && !/\d/.test(s) && SECTION_WORDS.has(normalizeHeading(s))) return true;
   return false;
 }
@@ -139,6 +174,11 @@ const END_WORD = "(?:Present|Current|present|current|Now|now)";
 const SIDE = `(?:(?:${MONTH}\\s*,?\\s*)?(?:\\d{4}|${END_WORD})|${MONTH})`;
 const DATE = `${SIDE}(?:\\s*(?:[-–—]|to)\\s*${SIDE})?`;
 const TRAILING_DATE = new RegExp(`^(.*?\\S)\\s+(${DATE})\\s*$`);
+
+// Chinese date forms, e.g. "2024年6月", "2024年", "至今", "2024年6月 - 至今".
+const CJK_SIDE = "(?:\\d{4}\\s*年(?:\\s*\\d{1,2}\\s*月)?|至今|现在|今)";
+const CJK_DATE = `${CJK_SIDE}(?:\\s*(?:[-–—~]|至|到)\\s*${CJK_SIDE})?`;
+const TRAILING_DATE_CJK = new RegExp(`^(.*?\\S)[\\s,，、]+(${CJK_DATE})\\s*$`);
 
 const DATE_FIRST_PATTERNS = [
   /^(\d{1,2}\/\d{2}-\d{1,2}\/\d{2})\s{2,}(.+)$/,
@@ -156,13 +196,25 @@ function parseDateFirst(line: string): [string, string] | null {
 }
 
 function parseTrailingDate(line: string): { text: string; date: string } | null {
-  const m = TRAILING_DATE.exec(line.trim());
-  if (!m) return null;
-  const date = m[2].trim();
-  const text = m[1].trim();
-  if (!/\d{4}/.test(date) && !new RegExp(END_WORD).test(date)) return null;
-  if (!text) return null;
-  return { text, date };
+  const trimmed = line.trim();
+  const m = TRAILING_DATE.exec(trimmed);
+  if (m) {
+    const date = m[2].trim();
+    const text = m[1].trim();
+    if ((/\d{4}/.test(date) || new RegExp(END_WORD).test(date)) && text) {
+      return { text, date };
+    }
+  }
+  // Chinese date format fallback.
+  const c = TRAILING_DATE_CJK.exec(trimmed);
+  if (c) {
+    const date = c[2].trim();
+    const text = c[1].trim();
+    if ((/\d{4}/.test(date) || /至今|现在|今/.test(date)) && text) {
+      return { text, date };
+    }
+  }
+  return null;
 }
 
 export type ResumeItem =

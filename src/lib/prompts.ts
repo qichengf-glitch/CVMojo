@@ -73,8 +73,12 @@ export function buildGeneratePrompt(
   const langInstruction = () => {
     if (language === "en") return "Generate ONLY an English version.";
     if (language === "zh")
-      return "Generate ONLY a Chinese (simplified) version. The resume and cover letter must be natural, professional Chinese for applications in China. Keep company names, technical tools, and degree titles in English where expected.";
-    return "Generate BOTH English AND Chinese (simplified) versions. Chinese must read like native Chinese applications, not literal translation.";
+      return `Generate ONLY a Chinese (simplified) version. Translate ALL translatable content into natural, professional Chinese for job applications in China: job titles, degrees, majors and fields of study, every responsibility and bullet point, project names and descriptions, relevant coursework, locations, and section content. Do NOT leave English sentences or English bullet text in the output.
+Keep in their original English form ONLY:
+1. Technical tools, software, programming languages, frameworks, and named methods (for example Python, SQL, R, MATLAB, Excel, AutoCAD, SolidWorks, React, Next.js, Oracle ERP, Six Sigma) — these are proper skill names and must NOT be translated.
+2. Proper names normally not translated, such as company names and school names (you may keep "Cornell University", "Siemens Energy" in English).
+Everything that describes what the candidate did, studied, or achieved must be written in Chinese. A line like "Industrial Engineer Intern, Siemens Energy, June 2024 - August 2024" should become "工业工程实习生,Siemens Energy,2024年6月 - 2024年8月", and bullet descriptions must be fully in Chinese (keeping only tool names in English).`;
+    return "Generate BOTH English AND Chinese (simplified) versions. The Chinese version must follow the same full-translation rules: translate all descriptive content into natural Chinese, keeping only technical tool/skill names and proper company/school names in English.";
   };
 
   const shapeParts: string[] = [];
