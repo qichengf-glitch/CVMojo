@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { hasSupabasePublicEnv, SUPABASE_ENV_ERROR } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import { callOpenAI, parseJsonResponse } from "@/lib/openai";
-import { buildGeneratePrompt, buildParseResumePrompt } from "@/lib/prompts";
+import {
+  CHINESE_TRANSLATION_BOUNDARY,
+  buildGeneratePrompt,
+  buildParseResumePrompt,
+  buildResumeQualityPrompt,
+  buildResumeQualityRevisionPrompt,
+} from "@/lib/prompts";
 import { getFullProfile, parsedResumeToFullProfile } from "@/lib/profile";
-import type { GenerateResult, ParsedResume } from "@/lib/types";
+import type { GenerateResult, ParsedResume, ResumeQualityReport } from "@/lib/types";
 
 // One full page, upper bound. Never exceed these.
 const MAX_RESUME_NON_EMPTY_LINES = 48;
@@ -69,6 +75,123 @@ function belowCoverLetterMinimum(text: string) {
   );
 }
 
+function lineHasEnglishNarrative(line: string) {
+  if (!/[A-Za-z]/.test(line)) return false;
+
+  const withoutCommonNonTranslatables = line.replace(
+    /\b(?:Python|SQL|R|MATLAB|Excel|Tableau|Power BI|AutoCAD|SolidWorks|React|Next\.js|Node\.js|JavaScript|TypeScript|Oracle ERP|SAP|AWS|Azure|GCP|Git|CPA|CFA|HIPAA|GAAP|Six Sigma)\b/g,
+    ""
+  );
+  const longLatinRuns = withoutCommonNonTranslatables.match(
+    /[A-Za-z][A-Za-z0-9 ,.;:'"()/%+&.-]{32,}/g
+  );
+
+  const lower = withoutCommonNonTranslatables.toLowerCase();
+  if (
+    /\b(?:experience|education|skills|project|summary|responsibilities|coursework|degree|major|minor|intern|assistant|manager|analyst|engineer|engineering|research|marketing|finance|operations|operational|leadership|university|college|school|process|inventory|warehouse|facility|statistical|control|decision|modeling|mapping|reliability|analysis|visualization|tools|language|software)\b/.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+
+  if (!longLatinRuns) return false;
+
+  return (
+    /\b(?:developed|managed|led|designed|analyzed|analysed|created|implemented|optimized|optimised|assisted|supported|collaborated|conducted|built|maintained|improved|generated|prepared|presented|coordinated|researched|evaluated|trained|resolved|delivered|responsible|worked|used|using)\b/.test(
+      lower
+    )
+  );
+}
+
+function needsChineseTranslationRepair(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some(lineHasEnglishNarrative);
+}
+
+function applyChineseTermTranslations(text: string) {
+  const replacements: Array<[RegExp, string]> = [
+    [/\bCornell University,\s*College of Engineering\b/g, "康奈尔大学工程学院"],
+    [
+      /\bPennsylvania State University,\s*College of Engineering\b/g,
+      "宾夕法尼亚州立大学工程学院",
+    ],
+    [/\bCornell University\b/g, "康奈尔大学"],
+    [/\bPennsylvania State University\b/g, "宾夕法尼亚州立大学"],
+    [/\bStanford University\b/g, "斯坦福大学"],
+    [/\bHarvard University\b/g, "哈佛大学"],
+    [/\bMassachusetts Institute of Technology\b/g, "麻省理工学院"],
+    [/\bUniversity of California,\s*Berkeley\b/g, "加州大学伯克利分校"],
+    [/\bIndustrial Engineering\s*&\s*Operational\b/g, "工业工程与运营"],
+    [/\bSystems\s*&\s*Decision Support\b/g, "系统与决策支持"],
+    [/\bData\s*&\s*Engineering Tools\b/g, "数据与工程工具"],
+    [/\bSoftware Tools\b/g, "软件工具"],
+    [/\bLanguage\b/g, "语言"],
+    [/\bProcess Improvement\b/g, "流程改进"],
+    [/\bInventory [Aa]nalysis\b/g, "库存分析"],
+    [/\bTime Study\b/g, "时间研究"],
+    [/\bWarehouse Layout Optimization\b/g, "仓库布局优化"],
+    [/\bFacility Planning\b/g, "设施规划"],
+    [/\bStatistical Process Control\b/g, "统计过程控制"],
+    [/\bDecision Modeling\b/g, "决策建模"],
+    [/\bProcess Mapping\b/g, "流程映射"],
+    [/\bReliability Analysis\b/g, "可靠性分析"],
+    [/\bOperational Risk Analysis\b/g, "运营风险分析"],
+    [/\bData Visualization\b/g, "数据可视化"],
+    [/\bDiscrete-Event Simulator\b/g, "离散事件仿真器"],
+    [/\bProject Management\b/g, "项目管理"],
+    [/\bMarket Research\b/g, "市场研究"],
+    [/\bData Analysis\b/g, "数据分析"],
+    [/\bLeadership\b/g, "领导力"],
+    [/\bCommunication\b/g, "沟通能力"],
+  ];
+
+  return replacements.reduce((current, [pattern, replacement]) => {
+    return current.replace(pattern, replacement);
+  }, text);
+}
+
+async function repairChineseDocument(
+  content: string,
+  kind: "resume" | "cover_letter",
+  sourceContext: string
+): Promise<string> {
+  const current = content.trim();
+  if (!needsChineseTranslationRepair(current)) return applyChineseTermTranslations(current);
+
+  const prompt = `你是中文求职材料编辑。下面这份${kind === "resume" ? "简历" : "求职信"}应该是中文版，但仍有英文叙述内容残留。请只修复语言问题，返回高质量简体中文版本。
+
+${CHINESE_TRANSLATION_BOUNDARY}
+
+硬规则：
+- 保持原有结构、行序、空行、TAB 分隔、项目符号和所有真实事实。
+- 不要新增经历、公司、学校、日期、指标或技能。
+- 学校名使用常见中文译名，例如 Cornell University -> 康奈尔大学，Pennsylvania State University -> 宾夕法尼亚州立大学。公司名没有通用中文品牌名时可保留原文。个人名、技术工具、软件、编程语言、框架、证书和专有方法保持常用写法。
+- 把英文 section label、职位/学位/专业、课程描述、职责要点、项目描述、通用软技能、业务能力、skill category 和描述性 skill item 翻译成自然专业的中文。
+- 不输出解释，只返回 JSON。
+
+原始真实素材：
+---
+${sourceContext}
+---
+
+需要修复的内容：
+---
+${current}
+---
+
+Respond with ONLY JSON in this exact shape:
+{"content":"..."}`;
+
+  const repaired = parseJsonResponse<{ content: string }>(
+    await callOpenAI(prompt, 6000)
+  ).content?.trim();
+  return applyChineseTermTranslations(repaired || current);
+}
+
 async function compressResumeToOnePage(
   resume: string,
   language: "en" | "zh"
@@ -80,14 +203,17 @@ async function compressResumeToOnePage(
 
     const prompt =
       language === "zh"
-        ? `你是严格控制简历篇幅的编辑。请把下面这份简历压缩到一页，保持原有 section 顺序、标题、公司、学校、职位、日期和整体结构，不要新增信息，不要改成新的模板。优先删弱内容、合并冗余措辞、缩短句子，并保留最强的岗位匹配点。必须返回 JSON，格式如下：
+        ? `你是严格控制简历篇幅的编辑。请把下面这份中文简历压缩到一页，保持原有 section 顺序、标题、公司、学校、职位、日期和整体结构，不要新增信息，不要改成新的模板。优先删弱内容、合并冗余措辞、缩短句子，并保留最强的岗位匹配点。必须返回 JSON，格式如下：
 {"resume":"..."}
+
+${CHINESE_TRANSLATION_BOUNDARY}
 
 硬规则：
 - 只改 resume，不要输出解释。
 - 保持原有结构和 section 顺序。
 - 不要删掉最强的经历和关键词。
 - 不要虚构任何内容。
+- 保持中文版：除不可翻译的技术工具、软件、证书、无通用中文名的公司品牌名和人名外，不要留下英文叙述句；常见学校名要用中文译名。
 - 使用纯文本。
 
 Resume:
@@ -128,14 +254,17 @@ async function compressCoverLetterToOnePage(
 
     const prompt =
       language === "zh"
-        ? `你是严格控制求职信篇幅的编辑。请把下面这封求职信压缩到一页内，保留原有 header block、收件人信息、RE 行、称呼、4段正文和结尾签名。不要虚构信息，不要改成新的结构，不要删除最关键的岗位匹配点。优先压缩冗余句子、空话和重复表达。必须返回 JSON，格式如下：
+        ? `你是严格控制求职信篇幅的编辑。请把下面这封中文求职信压缩到一页内，保留原有 header block、收件人信息、称呼、正文和结尾签名。不要虚构信息，不要改成新的结构，不要删除最关键的岗位匹配点。优先压缩冗余句子、空话和重复表达。必须返回 JSON，格式如下：
 {"cover_letter":"..."}
+
+${CHINESE_TRANSLATION_BOUNDARY}
 
 硬规则：
 - 只改求职信，不要输出解释。
-- 保留现有 header block 和 4 段正文结构。
+- 保留现有 header block 和正文段落结构。
 - 保留真实日期、公司名、职位名、签名。
 - 不要虚构任何内容。
+- 保持中文版：除不可翻译的技术工具、软件、证书、无通用中文名的公司品牌名和人名外，不要留下英文叙述句；常见学校名要用中文译名。
 - 使用纯文本。
 
 Cover letter:
@@ -183,6 +312,8 @@ async function expandResumeToFillPage(
         ? `这份简历太短，没有填满一页。请把它扩展到大约一页的 90% 到 100%，但绝不能超过一页。只能使用下面"原始素材"里真实存在的信息来扩充：恢复被删掉的相关技能、补回真实的经历要点、为已有条目补充真实的细节（工具、范围、成果）。不要虚构任何公司、职位、日期、指标或技能。保持原有 section 顺序和结构。必须返回 JSON：
 {"resume":"..."}
 
+${CHINESE_TRANSLATION_BOUNDARY}
+
 原始素材（可参考的真实内容）：
 ---
 ${source}
@@ -228,8 +359,10 @@ async function expandCoverLetterToFillPage(
 
     const prompt =
       language === "zh"
-        ? `这封求职信太短。请把它扩展到大约一页的 80% 到 100%（正文约 300 到 380 字），但绝不能超过一页。保留现有的 header block、收件人信息、称呼、结尾签名不变，只扩展正文段落，用下面"原始素材"里真实的细节来充实论证。不要虚构任何信息。必须返回 JSON：
+        ? `这封中文求职信太短。请把它扩展到大约一页的 80% 到 100%（正文约 600 到 900 个中文字，按内容密度灵活控制），但绝不能超过一页。保留现有的 header block、收件人信息、称呼、结尾签名不变，只扩展正文段落，用下面"原始素材"里真实的细节来充实论证。不要虚构任何信息。必须返回 JSON：
 {"cover_letter":"..."}
+
+${CHINESE_TRANSLATION_BOUNDARY}
 
 原始素材（可参考的真实内容）：
 ---
@@ -277,7 +410,10 @@ function normalizeMissingKeywords(
       new Set(
         items
           .map((item) => item.trim())
-          .filter((item) => item.length > 0 && item.toLowerCase() !== "none")
+          .filter((item) => {
+            const lower = item.toLowerCase();
+            return item.length > 0 && lower !== "none" && item !== "无" && item !== "暂无";
+          })
       )
     );
 
@@ -286,13 +422,122 @@ function normalizeMissingKeywords(
   if (summary) {
     const line = summary
       .split("\n")
-      .find((l) => /missing/i.test(l));
+      .find((l) => /missing|缺失|缺少|未体现|待补充/i.test(l));
     if (line) {
-      const afterColon = line.includes(":") ? line.slice(line.indexOf(":") + 1) : line;
-      return clean(afterColon.split(/[,;|]/));
+      const colonIndex = line.search(/[:：]/);
+      const afterColon = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
+      return clean(afterColon.split(/[,，;；|、]/));
     }
   }
   return [];
+}
+
+function clampScore(value: unknown) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+interface QualityAssessment {
+  report: ResumeQualityReport;
+  needsRevision: boolean;
+}
+
+async function assessResumeQuality(
+  sourceResume: string,
+  resume: string,
+  jobDescription: string,
+  language: "en" | "zh",
+  rerunCount: number
+): Promise<QualityAssessment> {
+  const parsed = parseJsonResponse<{
+    overall_score?: number;
+    format_score?: number;
+    jd_match_score?: number;
+    suggestions?: string[];
+    format_issues?: string[];
+    needs_revision?: boolean;
+  }>(
+    await callOpenAI(
+      buildResumeQualityPrompt(sourceResume, resume, jobDescription, language),
+      4000
+    )
+  );
+
+  const report: ResumeQualityReport = {
+    overallScore: clampScore(parsed.overall_score),
+    formatScore: clampScore(parsed.format_score),
+    jdMatchScore: clampScore(parsed.jd_match_score),
+    suggestions: normalizeStringArray(parsed.suggestions),
+    formatIssues: normalizeStringArray(parsed.format_issues),
+    rerunCount,
+  };
+
+  return {
+    report,
+    needsRevision:
+      Boolean(parsed.needs_revision) ||
+      report.overallScore < 80 ||
+      report.formatScore < 80 ||
+      report.jdMatchScore < 80,
+  };
+}
+
+async function runResumeQualityAgent(
+  resume: string,
+  sourceResume: string,
+  jobDescription: string,
+  language: "en" | "zh"
+): Promise<{ resume: string; report: ResumeQualityReport }> {
+  let current = resume;
+  let assessment = await assessResumeQuality(
+    sourceResume,
+    current,
+    jobDescription,
+    language,
+    0
+  );
+
+  for (let rerunCount = 1; rerunCount <= 2 && assessment.needsRevision; rerunCount += 1) {
+    const revised = parseJsonResponse<{ resume?: string }>(
+      await callOpenAI(
+        buildResumeQualityRevisionPrompt(
+          sourceResume,
+          current,
+          jobDescription,
+          language,
+          assessment.report.suggestions,
+          assessment.report.formatIssues
+        ),
+        6000
+      )
+    ).resume?.trim();
+
+    if (!revised) break;
+
+    const fitted = exceedsOnePageBudget(revised)
+      ? await compressResumeToOnePage(revised, language)
+      : revised;
+    current =
+      language === "zh" ? await repairChineseDocument(fitted, "resume", sourceResume) : fitted;
+    assessment = await assessResumeQuality(
+      sourceResume,
+      current,
+      jobDescription,
+      language,
+      rerunCount
+    );
+  }
+
+  return { resume: current, report: assessment.report };
 }
 
 export async function POST(request: Request) {
@@ -374,6 +619,12 @@ export async function POST(request: Request) {
     if (parsed.en) {
       const compressedResume = await compressResumeToOnePage(parsed.en.tailored_resume, "en");
       const fittedResume = await expandResumeToFillPage(compressedResume, "en", sourceContext);
+      const qualityCheckedResume = await runResumeQualityAgent(
+        fittedResume,
+        sourceContext,
+        jobDescription ?? "",
+        "en"
+      );
       const compressedCoverLetter = await compressCoverLetterToOnePage(parsed.en.cover_letter, "en");
       const fittedCoverLetter = await expandCoverLetterToFillPage(
         compressedCoverLetter,
@@ -381,32 +632,63 @@ export async function POST(request: Request) {
         sourceContext
       );
       result.docs.en = {
-        resume: fittedResume,
+        resume: qualityCheckedResume.resume,
         coverLetter: fittedCoverLetter,
         tailoringSummary: parsed.en.tailoring_summary,
         missingKeywords: normalizeMissingKeywords(
           parsed.en.missing_keywords,
           parsed.en.tailoring_summary
         ),
+        qualityReport: qualityCheckedResume.report,
       };
     }
     if (parsed.zh) {
-      const compressedResume = await compressResumeToOnePage(parsed.zh.tailored_resume, "zh");
-      const fittedResume = await expandResumeToFillPage(compressedResume, "zh", sourceContext);
-      const compressedCoverLetter = await compressCoverLetterToOnePage(parsed.zh.cover_letter, "zh");
-      const fittedCoverLetter = await expandCoverLetterToFillPage(
+      const repairedResume = await repairChineseDocument(
+        parsed.zh.tailored_resume,
+        "resume",
+        sourceContext
+      );
+      const compressedResume = await compressResumeToOnePage(repairedResume, "zh");
+      const expandedResume = await expandResumeToFillPage(compressedResume, "zh", sourceContext);
+      const fittedResume = await repairChineseDocument(expandedResume, "resume", sourceContext);
+      const finalResume = exceedsOnePageBudget(fittedResume)
+        ? await compressResumeToOnePage(fittedResume, "zh")
+        : fittedResume;
+      const qualityCheckedResume = await runResumeQualityAgent(
+        finalResume,
+        sourceContext,
+        jobDescription ?? "",
+        "zh"
+      );
+
+      const repairedCoverLetter = await repairChineseDocument(
+        parsed.zh.cover_letter,
+        "cover_letter",
+        sourceContext
+      );
+      const compressedCoverLetter = await compressCoverLetterToOnePage(repairedCoverLetter, "zh");
+      const expandedCoverLetter = await expandCoverLetterToFillPage(
         compressedCoverLetter,
         "zh",
         sourceContext
       );
+      const fittedCoverLetter = await repairChineseDocument(
+        expandedCoverLetter,
+        "cover_letter",
+        sourceContext
+      );
+      const finalCoverLetter = exceedsCoverLetterOnePageBudget(fittedCoverLetter)
+        ? await compressCoverLetterToOnePage(fittedCoverLetter, "zh")
+        : fittedCoverLetter;
       result.docs.zh = {
-        resume: fittedResume,
-        coverLetter: fittedCoverLetter,
+        resume: qualityCheckedResume.resume,
+        coverLetter: finalCoverLetter,
         tailoringSummary: parsed.zh.tailoring_summary,
         missingKeywords: normalizeMissingKeywords(
           parsed.zh.missing_keywords,
           parsed.zh.tailoring_summary
         ),
+        qualityReport: qualityCheckedResume.report,
       };
     }
 

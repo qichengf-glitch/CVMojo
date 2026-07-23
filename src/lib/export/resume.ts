@@ -10,6 +10,7 @@ import {
   BorderStyle,
 } from "docx";
 import { parseResume, type ParsedResume, type ResumeBlock, BULLET } from "./parse";
+import { registerPdfFonts, type PdfFonts } from "./pdf-fonts";
 
 interface Layout {
   nameSize: number;
@@ -46,26 +47,31 @@ const PAGE_W = 8.5 * PT;
 
 // ---------- PDF ----------
 
-function drawResumePdf(doc: PDFKit.PDFDocument, parsed: ParsedResume, layout: Layout) {
+function drawResumePdf(
+  doc: PDFKit.PDFDocument,
+  parsed: ParsedResume,
+  layout: Layout,
+  fonts: PdfFonts
+) {
   const left = layout.margin * PT;
   const right = PAGE_W - layout.margin * PT;
   const contentWidth = right - left;
   const lineGap = (layout.lineGap - 1) * layout.bodySize;
 
   if (parsed.name) {
-    doc.font("Times-Bold").fontSize(layout.nameSize);
+    doc.font(fonts.bold).fontSize(layout.nameSize);
     doc.text(parsed.name.toUpperCase(), left, doc.y, { width: contentWidth, align: "center" });
     doc.y += 2;
   }
   if (parsed.contact) {
-    doc.font("Times-Roman").fontSize(layout.contactSize);
+    doc.font(fonts.regular).fontSize(layout.contactSize);
     doc.text(parsed.contact, left, doc.y, { width: contentWidth, align: "center" });
   }
 
   for (const block of parsed.blocks) {
     if (block.title) {
       doc.y += layout.sectionGap + 2;
-      doc.font("Times-Bold").fontSize(layout.headingSize);
+      doc.font(fonts.bold).fontSize(layout.headingSize);
       doc.text(block.title, left, doc.y, { width: contentWidth });
       const ly = doc.y + 1;
       doc.moveTo(left, ly).lineTo(right, ly).lineWidth(0.7).strokeColor("#000000").stroke();
@@ -77,7 +83,7 @@ function drawResumePdf(doc: PDFKit.PDFDocument, parsed: ParsedResume, layout: La
     for (const item of block.items) {
       if (item.kind === "entry") {
         doc.y += 3; // space between entries
-        doc.fontSize(layout.bodySize).font("Times-Bold");
+        doc.fontSize(layout.bodySize).font(fonts.bold);
         const y = doc.y;
         if (item.dateLeft) {
           doc.text(`${item.date}    ${item.text}`, left, y, { width: contentWidth, lineGap });
@@ -91,16 +97,16 @@ function drawResumePdf(doc: PDFKit.PDFDocument, parsed: ParsedResume, layout: La
           doc.y = Math.max(leftEnd, doc.y);
         }
       } else if (item.kind === "bullet") {
-        doc.fontSize(layout.bodySize).font("Times-Roman");
+        doc.fontSize(layout.bodySize).font(fonts.regular);
         const bx = left + 14;
         const y = doc.y;
         doc.text(BULLET, bx, y, { lineBreak: false });
         doc.text(item.text, bx + 10, y, { width: contentWidth - 24, lineGap });
       } else if (item.kind === "indent") {
-        doc.fontSize(layout.bodySize).font("Times-Roman");
+        doc.fontSize(layout.bodySize).font(fonts.regular);
         doc.text(item.text, left + 14, doc.y, { width: contentWidth - 14, lineGap });
       } else {
-        doc.fontSize(layout.bodySize).font("Times-Roman");
+        doc.fontSize(layout.bodySize).font(fonts.regular);
         doc.text(item.text, left, doc.y, { width: contentWidth, lineGap });
         doc.y += 1;
       }
@@ -108,43 +114,45 @@ function drawResumePdf(doc: PDFKit.PDFDocument, parsed: ParsedResume, layout: La
   }
 }
 
-function pageCountForScale(parsed: ParsedResume, scale: number): number {
+function pageCountForScale(parsed: ParsedResume, scale: number, language: "en" | "zh"): number {
   const layout = layoutForScale(scale);
   const m = layout.margin * PT;
   const doc = new PDFDocument({ size: "LETTER", margins: { top: m, bottom: m, left: m, right: m }, bufferPages: true });
+  const fonts = registerPdfFonts(doc, language);
   // Consume stream so internal buffers don't grow unbounded.
   doc.on("data", () => {});
-  drawResumePdf(doc, parsed, layout);
+  drawResumePdf(doc, parsed, layout, fonts);
   const count = doc.bufferedPageRange().count;
   doc.end();
   return count;
 }
 
-function bestScale(parsed: ParsedResume): number {
-  const min = 0.8;
+function bestScale(parsed: ParsedResume, language: "en" | "zh"): number {
+  const min = 0.62;
   const max = 1.6;
-  if (pageCountForScale(parsed, min) > 1) return min;
+  if (pageCountForScale(parsed, min, language) > 1) return min;
   let lo = min;
   let hi = max;
   for (let i = 0; i < 7; i++) {
     const mid = (lo + hi) / 2;
-    if (pageCountForScale(parsed, mid) <= 1) lo = mid;
+    if (pageCountForScale(parsed, mid, language) <= 1) lo = mid;
     else hi = mid;
   }
   return round3(lo);
 }
 
-export function buildResumePdf(content: string): Promise<Buffer> {
+export function buildResumePdf(content: string, language: "en" | "zh"): Promise<Buffer> {
   const parsed = parseResume(content);
-  const layout = layoutForScale(bestScale(parsed));
+  const layout = layoutForScale(bestScale(parsed, language));
   const m = layout.margin * PT;
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: "LETTER", margins: { top: m, bottom: m, left: m, right: m } });
+    const fonts = registerPdfFonts(doc, language);
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-    drawResumePdf(doc, parsed, layout);
+    drawResumePdf(doc, parsed, layout, fonts);
     doc.end();
   });
 }
@@ -153,7 +161,7 @@ export function buildResumePdf(content: string): Promise<Buffer> {
 
 export async function buildResumeDocx(content: string, language: "en" | "zh"): Promise<Buffer> {
   const parsed = parseResume(content);
-  const layout = layoutForScale(bestScale(parsed));
+  const layout = layoutForScale(bestScale(parsed, language));
   const font = language === "zh" ? "SimSun" : "Times New Roman";
   const hp = (pt: number) => Math.round(pt * 2); // half-points
   const tw = (inches: number) => Math.round(inches * 1440); // twips

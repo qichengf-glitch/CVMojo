@@ -1,13 +1,14 @@
 import PDFDocument from "pdfkit";
 import { Document, Packer, Paragraph, TextRun, AlignmentType } from "docx";
 import { parseCoverLetter } from "./parse";
+import { registerCoverPdfFonts } from "./pdf-fonts";
 
 const PT = 72;
 const PAGE_W = 8.5 * PT;
 
 // ---------- PDF ----------
 
-export function buildCoverPdf(content: string): Promise<Buffer> {
+export function buildCoverPdf(content: string, language: "en" | "zh"): Promise<Buffer> {
   const parsed = parseCoverLetter(content);
   const topBottom = 0.85 * PT;
   const leftRight = 0.9 * PT;
@@ -19,12 +20,13 @@ export function buildCoverPdf(content: string): Promise<Buffer> {
       size: "LETTER",
       margins: { top: topBottom, bottom: topBottom, left: leftRight, right: leftRight },
     });
+    const fonts = registerCoverPdfFonts(doc, language);
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.font("Helvetica").fontSize(11);
+    doc.font(fonts.regular).fontSize(11);
 
     parsed.headerGroups.forEach((group, gi) => {
       for (const line of group) {
@@ -35,7 +37,7 @@ export function buildCoverPdf(content: string): Promise<Buffer> {
     if (parsed.headerGroups.length) doc.y += 8;
 
     for (const para of parsed.bodyParagraphs) {
-      doc.font("Helvetica").fontSize(11);
+      doc.font(fonts.regular).fontSize(11);
       doc.text(para, left, doc.y, { width: contentWidth, lineGap: 3, align: "left" });
       doc.y += 8;
     }

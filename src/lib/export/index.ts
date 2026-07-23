@@ -14,7 +14,9 @@ export async function exportDocument(
 ): Promise<{ buffer: Buffer; contentType: string }> {
   if (format === "pdf") {
     const buffer =
-      documentType === "resume" ? await buildResumePdf(content) : await buildCoverPdf(content);
+      documentType === "resume"
+        ? await buildResumePdf(content, language)
+        : await buildCoverPdf(content, language);
     return { buffer, contentType: "application/pdf" };
   }
   const buffer =

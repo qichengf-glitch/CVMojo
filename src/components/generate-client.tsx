@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ResumePreviewModal } from "@/components/resume-preview-modal";
-import type { GenerateResult, KeywordPlacement } from "@/lib/types";
+import type { GenerateResult, KeywordPlacement, ResumeQualityReport } from "@/lib/types";
 import { extractResumeText, guessNameFromResumeText, safeName } from "@/lib/resume-files";
 import {
   isMissingStoredResumeColumnsError,
@@ -48,6 +48,50 @@ function TailoringSummary({ text }: { text: string }) {
         })}
     </div>
   );
+}
+
+function QualityReport({ report }: { report: ResumeQualityReport }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          ["Overall", "总分", report.overallScore],
+          ["Format", "格式", report.formatScore],
+          ["JD match", "JD 匹配", report.jdMatchScore],
+        ].map(([en, zh, score]) => (
+          <div key={en} className="rounded-lg border border-emerald-200 bg-white px-3 py-2">
+            <p className="text-xs font-semibold text-slate-500">{`${en} / ${zh}`}</p>
+            <p className="mt-1 text-lg font-bold text-emerald-700">{score}%</p>
+          </div>
+        ))}
+      </div>
+      {report.rerunCount > 0 && (
+        <p className="text-xs font-medium text-emerald-700">
+          AI revised this resume {report.rerunCount} time{report.rerunCount === 1 ? "" : "s"} before delivery.
+        </p>
+      )}
+      {(report.suggestions.length > 0 || report.formatIssues.length > 0) && (
+        <div className="space-y-2 text-sm text-slate-700">
+          {report.formatIssues.length > 0 && (
+            <p>
+              <span className="font-semibold text-slate-800">Format notes: </span>
+              {report.formatIssues.join("; ")}
+            </p>
+          )}
+          {report.suggestions.length > 0 && (
+            <p>
+              <span className="font-semibold text-slate-800">Suggestions: </span>
+              {report.suggestions.join("; ")}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function containsCjk(text: string) {
+  return /[一-鿿]/.test(text);
 }
 
 // Detect which sections a resume actually has, so we only offer placements that
@@ -104,8 +148,6 @@ export default function GenerateClient() {
   const [resumeText, setResumeText] = useState("");
   const [resumeFileName, setResumeFileName] = useState("");
   const [resumeMimeType, setResumeMimeType] = useState("");
-  // Keep the original uploaded file so a .docx can be tailored 1:1 (in place).
-  const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [jobLink, setJobLink] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [lang, setLang] = useState<"en" | "zh">("en");
@@ -114,6 +156,7 @@ export default function GenerateClient() {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [activeLang, setActiveLang] = useState<"en" | "zh">("en");
   const [activeTab, setActiveTab] = useState<"resume" | "cover">("resume");
+  const [draftContent, setDraftContent] = useState("");
   const [userName, setUserName] = useState("");
   const [resumeLoading, setResumeLoading] = useState(true);
   const [hasSavedProfile, setHasSavedProfile] = useState(false);
@@ -165,6 +208,17 @@ export default function GenerateClient() {
   useEffect(() => {
     setPlacements({});
   }, [result, activeLang]);
+
+  useEffect(() => {
+    if (containsCjk(jobDescription) && lang !== "zh") {
+      setLang("zh");
+    }
+  }, [jobDescription, lang]);
+
+  useEffect(() => {
+    const doc = result?.docs[activeLang];
+    setDraftContent(doc ? (activeTab === "resume" ? doc.resume : doc.coverLetter) : "");
+  }, [result, activeLang, activeTab]);
 
   const refreshCredits = useCallback(async () => {
     try {
@@ -283,7 +337,6 @@ export default function GenerateClient() {
       setResumeText(text);
       setResumeFileName(file.name);
       setResumeMimeType(file.type);
-      setResumeFile(file);
       setShowResumePreview(false);
       if (!userName.trim()) {
         const guessed = guessNameFromResumeText(text);
@@ -320,7 +373,6 @@ export default function GenerateClient() {
       setResumeText("");
       setResumeFileName("");
       setResumeMimeType("");
-      setResumeFile(null);
       setShowResumePreview(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't clear the current resume.");
@@ -337,7 +389,6 @@ export default function GenerateClient() {
       setResumeText("");
       setResumeFileName("");
       setResumeMimeType("");
-      setResumeFile(null);
       setResult(null);
       setActiveLang("en");
       setActiveTab("resume");
@@ -375,7 +426,8 @@ export default function GenerateClient() {
     setLoading(true);
     setResult(null);
 
-    const language = lang;
+    const language = containsCjk(jobDescription) ? "zh" : lang;
+    if (language !== lang) setLang(language);
 
     try {
       const res = await fetch("/api/generate", {
@@ -421,17 +473,25 @@ export default function GenerateClient() {
     return activeTab === "resume" ? doc.resume : doc.coverLetter;
   }
 
-  function copy() {
-    navigator.clipboard.writeText(currentContent());
+  function saveDraftContent(content = draftContent) {
+    setResult((prev) => {
+      const doc = prev?.docs[activeLang];
+      if (!prev || !doc) return prev;
+      return {
+        ...prev,
+        docs: {
+          ...prev.docs,
+          [activeLang]: {
+            ...doc,
+            ...(activeTab === "resume" ? { resume: content } : { coverLetter: content }),
+          },
+        },
+      };
+    });
   }
 
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  function copy() {
+    navigator.clipboard.writeText(draftContent);
   }
 
   async function download(format: "docx" | "pdf") {
@@ -441,53 +501,48 @@ export default function GenerateClient() {
     setExportingFormat(format);
 
     const kind = activeTab === "resume" ? "Resume" : "CoverLetter";
+    let contentForExport = draftContent;
 
     try {
-      let blob: Blob;
-
-      // 1:1 path: when the English resume came from an uploaded .docx, tailor the
-      // original file in place so its exact layout is preserved.
-      if (
-        format === "docx" &&
-        activeTab === "resume" &&
-        activeLang === "en" &&
-        resumeFile &&
-        resumeFile.name.toLowerCase().endsWith(".docx")
-      ) {
-        const docxBase64 = await fileToBase64(resumeFile);
-        const res = await fetch("/api/tailor-docx", {
+      if (activeTab === "resume") {
+        const fitRes = await fetch("/api/fit-resume", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            docxBase64,
-            fileName: fileBase(kind, activeLang),
-            jobLink,
-            jobDescription,
-          }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error || "Failed to export DOCX.");
-        }
-        blob = await res.blob();
-      } else {
-        const res = await fetch("/api/export", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: currentContent(),
-            fileName: fileBase(kind, activeLang),
-            format,
-            documentType: activeTab === "resume" ? "resume" : "cover_letter",
+            resume: contentForExport,
             language: activeLang,
           }),
         });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error || `Failed to export ${format.toUpperCase()}.`);
+        const fitData = await fitRes.json();
+        if (!fitRes.ok) {
+          throw new Error(fitData.error || "Could not fit the resume to one page.");
         }
-        blob = await res.blob();
+        if (typeof fitData.resume === "string" && fitData.resume.trim()) {
+          contentForExport = fitData.resume.trim();
+          setDraftContent(contentForExport);
+        }
       }
+
+      if (contentForExport !== currentContent()) {
+        saveDraftContent(contentForExport);
+      }
+
+      const res = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: contentForExport,
+          fileName: fileBase(kind, activeLang),
+          format,
+          documentType: activeTab === "resume" ? "resume" : "cover_letter",
+          language: activeLang,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || `Failed to export ${format.toUpperCase()}.`);
+      }
+      const blob = await res.blob();
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -506,6 +561,7 @@ export default function GenerateClient() {
   const outOfCredits = credits !== null && credits <= 0;
   const activeResume = result?.docs[activeLang]?.resume ?? "";
   const placementOptions = activeResume ? placementOptionsForResume(activeResume) : [];
+  const hasUnsavedDraft = draftContent !== currentContent();
 
   async function applyKeywords() {
     const doc = result?.docs[activeLang];
@@ -825,6 +881,13 @@ export default function GenerateClient() {
             </div>
           )}
 
+          {activeTab === "resume" && result.docs[activeLang]?.qualityReport && (
+            <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4">
+              <p className="mb-2 font-semibold text-slate-800">{t("AI quality check", "AI 质量检查")}</p>
+              <QualityReport report={result.docs[activeLang].qualityReport} />
+            </div>
+          )}
+
           {activeTab === "resume" && missingKeywords.length > 0 && (
             <div className="border-b border-slate-200 bg-white px-5 py-4">
               <p className="font-semibold text-slate-800">{t("Add missing keywords", "添加缺失的关键词")}</p>
@@ -906,9 +969,34 @@ export default function GenerateClient() {
             </button>
           </div>
 
-          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-words p-5 font-mono text-[13px] leading-relaxed">
-            {currentContent()}
-          </pre>
+          <div className="bg-white p-5">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <label className="block text-sm font-semibold text-slate-700">
+                {t("Edit before export", "导出前可编辑")}
+              </label>
+              <div className="flex items-center gap-2">
+                {hasUnsavedDraft && (
+                  <span className="text-xs font-medium text-amber-700">
+                    {t("Unsaved changes", "有未保存修改")}
+                  </span>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => saveDraftContent()}
+                  disabled={!hasUnsavedDraft}
+                >
+                  {t("Save changes", "保存修改")}
+                </Button>
+              </div>
+            </div>
+            <textarea
+              value={draftContent}
+              onChange={(e) => setDraftContent(e.target.value)}
+              spellCheck={false}
+              className="min-h-[420px] w-full resize-y rounded-xl border border-slate-300 bg-white p-4 font-mono text-[13px] leading-relaxed text-slate-900 outline-none focus:border-[#7c3aed] focus:ring-4 focus:ring-[#ede9fe]"
+            />
+          </div>
 
           <div className="flex gap-2 border-t border-slate-200 p-4">
             <Button variant="secondary" className="flex-1" onClick={copy}>
@@ -920,14 +1008,22 @@ export default function GenerateClient() {
               onClick={() => void download("docx")}
               disabled={exportingFormat !== ""}
             >
-              {exportingFormat === "docx" ? t("Exporting DOCX...", "正在导出 DOCX...") : t("Download DOCX", "下载 DOCX")}
+              {exportingFormat === "docx"
+                ? activeTab === "resume"
+                  ? t("Checking one page...", "正在检查一页限制...")
+                  : t("Exporting DOCX...", "正在导出 DOCX...")
+                : t("Download DOCX", "下载 DOCX")}
             </Button>
             <Button
               className="flex-1"
               onClick={() => void download("pdf")}
               disabled={exportingFormat !== ""}
             >
-              {exportingFormat === "pdf" ? t("Exporting PDF...", "正在导出 PDF...") : t("Download PDF", "下载 PDF")}
+              {exportingFormat === "pdf"
+                ? activeTab === "resume"
+                  ? t("Checking one page...", "正在检查一页限制...")
+                  : t("Exporting PDF...", "正在导出 PDF...")
+                : t("Download PDF", "下载 PDF")}
             </Button>
           </div>
         </FadeIn>

@@ -32,7 +32,7 @@ function paragraphText(paragraphXml: string): string {
 // Skill / coursework style content lines (kept editable). These describe content,
 // not structure, so tailoring them is safe as long as the line is single-column.
 const CONTENT_LABEL =
-  /^(technical\s+skills|specialized\s+skills|core\s+skills|key\s+skills|skills?|relevant\s+coursework|coursework|relevant\s+courses|courses|technologies|tools|languages?|programming|software|frameworks?|proficien\w*|certifications?|interests?)\b/i;
+  /^(technical\s+skills|specialized\s+skills|core\s+skills|key\s+skills|skills?|relevant\s+coursework|coursework|relevant\s+courses|courses|technologies|tools|languages?|programming|software|frameworks?|proficien\w*|certifications?|interests?|专业技能|技能|技能特长|核心技能|个人技能|相关课程|主修课程|课程|技术工具|工具|技术栈|编程语言|软件|框架|语言能力|语言|证书|资格证书|兴趣爱好|兴趣)\b/i;
 
 // A paragraph is safe to collapse-edit only if all its text runs share the same
 // formatting (so we never flatten a bold label into plain text, etc.).

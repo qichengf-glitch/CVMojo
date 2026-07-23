@@ -59,6 +59,16 @@ export interface GeneratedDoc {
   coverLetter: string;
   tailoringSummary?: string;
   missingKeywords?: string[];
+  qualityReport?: ResumeQualityReport;
+}
+
+export interface ResumeQualityReport {
+  overallScore: number;
+  formatScore: number;
+  jdMatchScore: number;
+  suggestions: string[];
+  formatIssues: string[];
+  rerunCount: number;
 }
 
 export type KeywordPlacement = "skill" | "coursework" | "experience";

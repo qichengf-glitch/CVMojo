@@ -322,11 +322,23 @@ export interface ParsedCover {
   closingLines: string[];
 }
 
-const CLOSINGS = new Set(["best regard,", "best regards,", "sincerely,", "thank you,"]);
+const CLOSINGS = new Set([
+  "best regard,",
+  "best regards,",
+  "sincerely,",
+  "thank you,",
+  "此致",
+  "敬礼",
+  "谨启",
+  "顺祝商祺",
+]);
 
 export function parseCoverLetter(content: string): ParsedCover {
   const lines = content.split("\n").map((l) => l.replace(/\s+$/, ""));
-  const greetingIndex = lines.findIndex((l) => l.trim().toLowerCase().startsWith("dear "));
+  const greetingIndex = lines.findIndex((l) => {
+    const s = l.trim();
+    return s.toLowerCase().startsWith("dear ") || /^尊敬的.+[：:]?$/.test(s);
+  });
 
   if (greetingIndex === -1) {
     const paragraphs = content

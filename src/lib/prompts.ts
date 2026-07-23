@@ -1,8 +1,8 @@
 import type { FullProfile } from "./types";
 import { buildResumeSampleGuidance, buildCoverLetterGuidance } from "./resume-samples";
 
-function buildCurrentDateString() {
-  return new Intl.DateTimeFormat("en-US", {
+function buildCurrentDateString(locale: "en-US" | "zh-CN") {
+  return new Intl.DateTimeFormat(locale, {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -10,17 +10,35 @@ function buildCurrentDateString() {
   }).format(new Date());
 }
 
-function buildCandidateResumeGuidance(profile: FullProfile) {
+function containsCjk(text: string): boolean {
+  return /[一-鿿]/.test(text);
+}
+
+export const CHINESE_TRANSLATION_BOUNDARY = `
+CHINESE OUTPUT TRANSLATION BOUNDARY:
+- Use Simplified Chinese for every translatable, descriptive part of the resume and cover letter.
+- Translate section headings, job titles, degree names, majors, coursework labels, responsibility bullets, project descriptions, soft skills, business functions, achievements, locations, skill category labels, and descriptive skill items when they have a natural Chinese equivalent.
+- Translate common university and college names into their standard Chinese names when widely used. Examples: Cornell University -> 康奈尔大学, Cornell University, College of Engineering -> 康奈尔大学工程学院, Pennsylvania State University -> 宾夕法尼亚州立大学, Pennsylvania State University, College of Engineering -> 宾夕法尼亚州立大学工程学院, Stanford University -> 斯坦福大学, Harvard University -> 哈佛大学, Massachusetts Institute of Technology -> 麻省理工学院, University of California, Berkeley -> 加州大学伯克利分校.
+- Company names may stay in their common brand form unless a standard Chinese brand name is clearly established. Personal names may stay as written.
+- Skill names are not all exempt. Translate general or descriptive skill categories and skills such as Industrial Engineering & Operational, Systems & Decision Support, Data & Engineering Tools, Software Tools, Language, Process Improvement, Inventory Analysis, Time Study, Warehouse Layout Optimization, Facility Planning, Statistical Process Control, Decision Modeling, Process Mapping, Reliability Analysis, Operational Risk Analysis, Data Visualization, Discrete-Event Simulator, Communication, Leadership, Data Analysis, Market Research, and Project Management into natural Chinese.
+- Keep only genuinely non-translatable technical items in their common original form: programming languages, specific software/tools, frameworks, technical platforms, product names, certifications, and methodologies commonly used in English, such as Python, SQL, R, MATLAB, Excel, Tableau, Power BI, AutoCAD, SolidWorks, React, Next.js, Oracle ERP, Six Sigma, CPA, CFA, HIPAA, and GAAP.
+- Do not leave full English sentences, English responsibility bullets, English project descriptions, English section labels, English school names with standard Chinese translations, or English descriptive skill/category lines in the Chinese version.
+`.trim();
+
+function buildCandidateResumeGuidance(profile: FullProfile, language: "en" | "zh" | "both") {
   const lines = ["CANDIDATE SOURCE RESUME GUIDANCE:"];
 
   if (profile.profile.resume_text?.trim()) {
     lines.push(
       "- The candidate uploaded an original resume. Treat it as the primary structure anchor.",
-      "- Keep its section order, heading style, and overall information architecture.",
+      "- Keep its section order, entry order, and overall information architecture.",
       "- Do not force a generic template if the source resume already has a cleaner structure.",
       "- Make surgical edits only: keyword alignment, bullet reordering within a role, light rephrasing, and skills reweighting.",
-      "- Leave unchanged when possible: company names, school names, titles, dates, locations, and any bullet that already fits the job well.",
+      "- Leave unchanged when possible: company names, school names, dates, and any bullet that already fits the job well.",
       "- If there is extra room near the bottom of the page, add more real relevant skills before adding new sections or over-expanding weaker bullets.",
+      language === "zh" || language === "both"
+        ? "- For the Chinese version, preserve the source resume's structure but translate translatable headings, titles, degrees, locations, bullets, school names with standard Chinese translations, skill category labels, and descriptive skill items into professional Simplified Chinese. Keep only personal names, company brand names without standard Chinese forms, and non-translatable technical tools/software/certifications in their common form."
+        : "",
       "---",
       profile.profile.resume_text.trim(),
       "---"
@@ -36,7 +54,13 @@ function buildCandidateResumeGuidance(profile: FullProfile) {
 }
 
 export function buildParseResumePrompt(resumeText: string): string {
+  const resumeLanguage = containsCjk(resumeText)
+    ? "The resume contains Chinese text. Parse Chinese, English, or bilingual sections completely."
+    : "The resume appears primarily English, but still handle bilingual content if present.";
+
   return `Extract structured data from this resume. Return ONLY valid JSON, no markdown.
+
+${resumeLanguage}
 
 Resume text:
 ---
@@ -57,7 +81,12 @@ Return JSON with this exact shape:
 
 Rules:
 - Do NOT invent data. Leave fields empty or arrays empty if absent.
-- bullets are string arrays of achievement lines.
+- Parse common Chinese resume headings including 教育背景, 工作经历, 实习经历, 项目经历, 专业技能, 技能, 证书, 荣誉奖项, 校园经历, 社会实践, 研究经历, 相关课程, and 语言能力.
+- Keep extracted field values in the resume's original language. Do not translate during parsing.
+- Preserve company names, school names, degrees, titles, dates, locations, technical tools, and bullet facts exactly as written when possible.
+- For Chinese date ranges such as "2024年6月-至今", put the full range into start_date/end_date as naturally as possible and set currently_working correctly.
+- bullets are string arrays of achievement lines. Include Chinese bullets and English bullets exactly as resume content.
+- skills should include technical skills, tools, languages, certifications, and clearly labeled skill items. Keep specific tool names such as Python, SQL, Excel, AutoCAD, SolidWorks, React, Tableau, Power BI, CPA, CFA, and Six Sigma in their common form.
 - currently_working is true only if the role is clearly current.`;
 }
 
@@ -73,12 +102,12 @@ export function buildGeneratePrompt(
   const langInstruction = () => {
     if (language === "en") return "Generate ONLY an English version.";
     if (language === "zh")
-      return `Generate ONLY a Chinese (simplified) version. Translate ALL translatable content into natural, professional Chinese for job applications in China: job titles, degrees, majors and fields of study, every responsibility and bullet point, project names and descriptions, relevant coursework, locations, and section content. Do NOT leave English sentences or English bullet text in the output.
-Keep in their original English form ONLY:
-1. Technical tools, software, programming languages, frameworks, and named methods (for example Python, SQL, R, MATLAB, Excel, AutoCAD, SolidWorks, React, Next.js, Oracle ERP, Six Sigma) — these are proper skill names and must NOT be translated.
-2. Proper names normally not translated, such as company names and school names (you may keep "Cornell University", "Siemens Energy" in English).
-Everything that describes what the candidate did, studied, or achieved must be written in Chinese. A line like "Industrial Engineer Intern, Siemens Energy, June 2024 - August 2024" should become "工业工程实习生,Siemens Energy,2024年6月 - 2024年8月", and bullet descriptions must be fully in Chinese (keeping only tool names in English).`;
-    return "Generate BOTH English AND Chinese (simplified) versions. The Chinese version must follow the same full-translation rules: translate all descriptive content into natural Chinese, keeping only technical tool/skill names and proper company/school names in English.";
+      return `Generate ONLY a Chinese (simplified) version.
+${CHINESE_TRANSLATION_BOUNDARY}
+Everything that describes what the candidate did, studied, or achieved must be written in Chinese. A line like "Industrial Engineer Intern, Siemens Energy, June 2024 - August 2024" should become "工业工程实习生\tSiemens Energy, 2024年6月 - 2024年8月", and bullet descriptions must be fully in Chinese, keeping only tool names in English when appropriate.`;
+    return `Generate BOTH English AND Chinese (simplified) versions.
+For the Chinese version:
+${CHINESE_TRANSLATION_BOUNDARY}`;
   };
 
   const shapeParts: string[] = [];
@@ -95,9 +124,19 @@ Everything that describes what the candidate did, studied, or achieved must be w
   const shape = `{"company": "...", ${shapeParts.join(", ")}}`;
   const sampleGuidance = buildResumeSampleGuidance(profile, jobLink, jobDescription);
   const coverLetterGuidance = buildCoverLetterGuidance(profile, jobLink, jobDescription);
-  const candidateGuidance = buildCandidateResumeGuidance(profile);
-  const currentDate = buildCurrentDateString();
+  const candidateGuidance = buildCandidateResumeGuidance(profile, language);
+  const currentDate = buildCurrentDateString("en-US");
+  const currentDateZh = buildCurrentDateString("zh-CN");
   const candidateName = profile.profile.full_name?.trim() || "the candidate";
+  const coverDateInstruction =
+    language === "both"
+      ? `use "${currentDate}" in the English cover letter and "${currentDateZh}" in the Chinese cover letter`
+      : language === "zh"
+        ? currentDateZh
+        : currentDate;
+  const jobLanguageGuidance = containsCjk(jobDescription)
+    ? "The target job description is Chinese or bilingual. Extract role requirements, qualifications, tools, and competency keywords from the Chinese JD directly. For Chinese output, use the JD's Chinese wording for translated competencies when it is truthful for the candidate; keep English tool/platform names exactly as the JD writes them."
+    : "The target job description is not primarily Chinese. For Chinese output, translate translatable job requirements and competencies into natural Chinese while keeping non-translatable tools/platforms in their common form.";
 
   return `You are an expert resume writer optimizing a candidate's resume to maximize interview callbacks for a SPECIFIC job. You have the candidate's structured profile and the target job description. Candidates range from students to experienced professionals; never assume seniority that the resume does not show.
 
@@ -113,6 +152,9 @@ ${jobDescription || "(none — infer from link if possible)"}
 ---
 
 LANGUAGE: ${langInstruction()}
+
+JOB DESCRIPTION LANGUAGE GUIDANCE:
+${jobLanguageGuidance}
 
 KEYWORD AND EMPHASIS GUIDANCE (use ONLY for tone, emphasis, and keyword framing — NOT for structure):
 ${sampleGuidance}
@@ -132,7 +174,8 @@ RESUME HARD RULES:
 - Keep dates readable (for example "June 2024 - August 2024", "May 2026", "Nov 2025 - Present"). Do not invent or alter real dates.
 - Make small, surgical wording edits only: reorder bullets within a role, swap in honest job keywords, tighten phrasing, surface relevant tools, and re-weight the visible skills section.
 - Do not change real facts: company names, schools, titles, locations, dates, degrees, and section names stay accurate.
-- Preserve verbatim, unless tailoring truly requires a small change: company names, school names, role titles, dates, locations, degrees, and any bullet that already fits the job.
+- For English output, preserve verbatim unless tailoring truly requires a small change: company names, school names, role titles, dates, locations, degrees, and any bullet that already fits the job.
+- For Chinese output, preserve the facts while translating translatable role titles, degrees, locations, section labels, school names with standard Chinese translations, skill category labels, descriptive skill items, and bullet wording into Chinese. Keep personal names, company brand names without standard Chinese forms, and non-translatable tools/software/certifications in their common form.
 - Never invent experience, employers, dates, metrics, or skills. Use only what is in the profile or source resume.
 - You may reasonably ESTIMATE a metric only if the profile implies scale, and phrase it honestly (e.g. "100+", "~15%"). If no basis exists, omit the number rather than fabricate.
 - No em dashes or en dashes. Use commas, periods, or "and."
@@ -153,7 +196,7 @@ RESUME TAILORING STEPS (make the SMALLEST edits that improve the match; when in 
 2. For each keyword that the candidate HONESTLY already has, make sure it appears somewhere in the resume. Add it only if it is real. Never add a skill, tool, or keyword the candidate does not actually have (for example do not add "Word" or "PowerPoint" unless they are in the source).
 3. Do NOT rewrite bullets that already work. Edit a bullet only when it clearly helps the match, and then make a minimal change: insert one honest keyword, tighten wording, or reorder it. Keep the bullet's original meaning, facts, and most of its wording. Most bullets should come through nearly unchanged.
 4. You may reorder bullets within a role so the most job-relevant one is first. Do not invent or merge bullets.
-5. SKILLS SECTION: keep the candidate's exact category labels verbatim, including their punctuation and wording (for example keep "Industrial Engineering & Operational", do not rename it to "Supply Chain and Operations", and do not change "&" to "and"). Within a category you may reorder skills so relevant ones come first, and you may append a skill the candidate genuinely has. Do not rename categories, do not move skills between categories, and do not invent skills.
+5. SKILLS SECTION: keep the candidate's skill categories and grouping logic. For English output, keep category labels verbatim, including punctuation and wording. For Chinese output, translate ordinary/descriptive category labels and descriptive skill items into natural Chinese, but keep non-translatable tool/product/certification names in their common form. Within a category you may reorder skills so relevant ones come first, and you may append a skill the candidate genuinely has. Do not move skills between unrelated categories, and do not invent skills.
 6. Only surface a tool into the skills or tools line if it truly appears in the candidate's source resume or profile.
 7. Mirror the seniority and tone of the job posting without changing the candidate's voice or facts.
 8. If there is leftover room near the bottom of the page, prefer appending more real, relevant skills the candidate already has before touching otherwise-fine content. Never pad with invented skills.
@@ -167,6 +210,7 @@ RESUME OUTPUT:
 - missing_keywords: a clean JSON array of the individual important job keywords the candidate does NOT yet have on the resume. Each item is one short phrase (for example "Power BI", "ASN", "3PL experience"). This must match Line 2 of the summary, split into separate entries. Return an empty array if nothing important is missing.
 
 For Chinese (zh) versions, preserve the same source-resume structure and section logic, translated naturally into Chinese only where appropriate.
+${CHINESE_TRANSLATION_BOUNDARY}
 
 COVER LETTER STRATEGY (adapt the letter to the situation and industry, do NOT use one fixed template):
 ${coverLetterGuidance}
@@ -177,7 +221,7 @@ COVER LETTER RULES:
 - Simple, sincere, and specific. It must sound like a real applicant, not a template.
 - Never use em dash or en dash. Use commas, periods, or "and."
 - Avoid hyphen-heavy phrasing inside sentences when natural alternatives exist.
-- Use plain business English. Control the use of "I." Prefer clear sentences over ornamental wording.
+- For English output, use plain business English and control the use of "I." For Chinese output, use concise professional Chinese business writing. Prefer clear sentences over ornamental wording.
 - Write 3 to 4 body paragraphs as directed by the type guidance. Make paragraphs substantive (about 3 to 6 sentences), not one-line fragments.
 - Choose the candidate's actual most relevant experiences for the body. Never assume any specific project or employer; select whatever genuinely fits this job from the profile.
 - Never call the candidate something they are not, such as Data Scientist, Product Manager, or Engineer, unless that is their actual role title in the profile.
@@ -189,12 +233,12 @@ COVER LETTER RULES:
 - Before finalizing, remove any sentence that could be pasted into 100 other applications without changing meaning.
 
 COVER LETTER LENGTH RULES:
-- The letter, INCLUDING the header block and the signature, must fill roughly 80 to 100 percent of ONE page: about 300 to 380 words of body text.
+- The letter, INCLUDING the header block and the signature, must fill roughly 80 to 100 percent of ONE page: about 300 to 380 English words of body text, or roughly 600 to 900 Chinese characters for Chinese output.
 - NEVER exceed one page. NEVER fall below 80 percent of a page. If the draft is too short, expand the body with real specifics from the profile, not filler. If too long, tighten sentences and cut repetition.
 
 COVER LETTER FORMAT (traditional Stanford business-letter block, in this exact order):
 1. Sender block: the candidate's address or city and state if known, then the candidate's email and phone. If no address is known, use the email and phone line only. Do not invent an address.
-2. One blank line, then today's date written exactly as: ${currentDate}
+2. One blank line, then today's date written exactly as: ${coverDateInstruction}
 3. One blank line, then the recipient block, each item on its own line:
    - Recipient name and title if known. If the name is not known, use "Recruiting Staff" or "Hiring Manager".
    - Department or division, only if clearly known.
@@ -210,7 +254,7 @@ COVER LETTER FORMAT (traditional Stanford business-letter block, in this exact o
    ${candidateName}
 - Do not leave placeholders such as [Your Name], [Date], [Company], [Address], or [Hiring Manager Name]. Omit unknown lines instead of inserting placeholders.
 - Use the candidate's real full name from the profile in the signature. If the full name is unknown, use the best available name from the profile.
-- For a Chinese (zh) cover letter, keep the same block order and length target, but use natural Chinese business conventions for the greeting and closing (for example "尊敬的XXX：" and a "此致\n敬礼" style closing), then the candidate's name.
+- For a Chinese (zh) cover letter, keep the same block order and length target, but use natural Chinese business conventions for the greeting and closing (for example "尊敬的XXX：" and a "此致\n敬礼" style closing), then the candidate's name. The body must be Chinese, except for proper names and non-translatable tools/skills.
 
 COMPANY: Identify from job description or link. If unclear, use "Company".
 
@@ -227,6 +271,10 @@ export function buildTailorBulletsPrompt(
   jobDescription: string,
   condense = false
 ): string {
+  const jobLanguageGuidance = containsCjk(jobDescription)
+    ? "The job description is Chinese or bilingual. Extract Chinese JD keywords directly. If an original line is Chinese, use natural Chinese JD wording. If an original line is English, keep the line English while preserving non-translatable tool names."
+    : "The job description is primarily English. Keep each edited line in its original language.";
+
   return `You are tailoring a resume's CONTENT lines to a specific job. Each item below is one editable line: an experience or project bullet, or a skills / coursework / tools list. You edit ONLY the wording. You never change the document's structure or formatting.
 
 Job link: ${jobLink || "(none)"}
@@ -240,6 +288,7 @@ ${JSON.stringify(bullets, null, 2)}
 
 RULES:
 - Return EXACTLY the same number of lines, in the same order. One tailored string per input line.
+- ${jobLanguageGuidance}
 - Keep every real fact. Never invent employers, titles, dates, metrics, tools, or achievements that are not already implied by the line. This must stay truthful.
 - For BULLET lines: surface job-relevant keywords that are honestly supported, lead with impact, tighten phrasing. If a bullet already fits, return it nearly unchanged.
 - For SKILLS / COURSEWORK / TOOLS lines (they usually contain a label like "Skills:" or "Relevant Coursework:" followed by a list): keep the label, then reorder the items so the most job-relevant ones come first, and you may add an item the candidate clearly has. Do not invent skills. Keep the same label wording.
@@ -274,7 +323,8 @@ export function buildRefineResumePrompt(
 
   const langNote =
     language === "zh"
-      ? "The resume is in Chinese. Keep it in natural Chinese and add the keywords in Chinese where appropriate, keeping tool and product names in their common form."
+      ? `The resume is in Chinese. Keep it in natural Simplified Chinese and add the keywords in Chinese where appropriate.
+${CHINESE_TRANSLATION_BOUNDARY}`
       : "The resume is in English.";
 
   return `You are editing an ALREADY tailored resume to incorporate specific keywords the candidate has chosen to add. The candidate has decided to include these, so add them as instructed.
@@ -305,4 +355,106 @@ HARD RULES:
 
 Respond with ONLY JSON in this shape:
 {"resume": "the full revised resume as plain text"}`;
+}
+
+export function buildResumeQualityPrompt(
+  sourceResume: string,
+  generatedResume: string,
+  jobDescription: string,
+  language: "en" | "zh"
+): string {
+  const langNote =
+    language === "zh"
+      ? `The generated resume is intended to be Simplified Chinese.
+${CHINESE_TRANSLATION_BOUNDARY}`
+      : "The generated resume is intended to be English.";
+
+  return `You are the internal QA agent for a resume tailoring product. Score the generated resume before the user sees it.
+
+${langNote}
+
+SOURCE RESUME OR PROFILE:
+---
+${sourceResume || "(none)"}
+---
+
+TARGET JOB DESCRIPTION:
+---
+${jobDescription || "(none)"}
+---
+
+GENERATED RESUME:
+---
+${generatedResume}
+---
+
+Scoring rules:
+- overall_score, format_score, and jd_match_score are integers from 0 to 100.
+- format_score measures whether the generated resume preserves the source resume's format and structure: header/contact style, section order, section grouping, entry grouping, bullet style, date placement, and overall information architecture. If the output is Chinese and the source is English, do NOT penalize translated section labels or translated job titles; compare the structure and layout, not literal language.
+- jd_match_score measures truthful match to the JD: relevant keywords, role responsibilities, required tools, seniority, and recruiter clarity. Penalize invented skills or inflated claims.
+- overall_score should weigh both format consistency and JD match. A resume should only be 80+ if it is both structurally faithful and well matched.
+- suggestions must be concrete, short, and actionable. Include only changes that would improve the current generated resume.
+- format_issues should list concrete format mismatches. Return [] if the generated resume preserves the source format well.
+- needs_revision is true if format_score < 80, jd_match_score < 80, or overall_score < 80.
+
+Respond with ONLY JSON in this exact shape:
+{
+  "overall_score": 0,
+  "format_score": 0,
+  "jd_match_score": 0,
+  "suggestions": ["..."],
+  "format_issues": ["..."],
+  "needs_revision": true
+}`;
+}
+
+export function buildResumeQualityRevisionPrompt(
+  sourceResume: string,
+  currentResume: string,
+  jobDescription: string,
+  language: "en" | "zh",
+  suggestions: string[],
+  formatIssues: string[]
+): string {
+  const langNote =
+    language === "zh"
+      ? `Return a high-quality Simplified Chinese resume.
+${CHINESE_TRANSLATION_BOUNDARY}`
+      : "Return a high-quality English resume.";
+
+  return `You are the internal resume revision agent. Revise the generated resume so it reaches at least 80/100 on both format consistency and JD match.
+
+${langNote}
+
+SOURCE RESUME OR PROFILE:
+---
+${sourceResume || "(none)"}
+---
+
+TARGET JOB DESCRIPTION:
+---
+${jobDescription || "(none)"}
+---
+
+CURRENT GENERATED RESUME:
+---
+${currentResume}
+---
+
+QA SUGGESTIONS:
+${suggestions.map((s) => `- ${s}`).join("\n") || "- None"}
+
+FORMAT ISSUES:
+${formatIssues.map((s) => `- ${s}`).join("\n") || "- None"}
+
+Hard rules:
+- Return the full revised resume only, as plain text in JSON.
+- Preserve every real fact. Do not invent employers, schools, dates, titles, metrics, certifications, tools, or experience.
+- Fix format mismatches by following the source resume's section order, entry grouping, bullet style, spacing, and two-column/header logic as closely as possible.
+- Improve JD match only with truthful keywords, reordered bullets, tightened phrasing, and relevant existing skills from the source.
+- Keep the resume to one page. Use • for bullet lines.
+- For Chinese output, translate translatable content, descriptive skills, and school names with standard Chinese translations. Keep only non-translatable tools, software, certifications, company brand names without standard Chinese forms, and personal names in their common form.
+
+Respond with ONLY JSON in this exact shape:
+{"resume":"..."}`;
 }
