@@ -339,6 +339,121 @@ function countMatches(text: string, keywords: string[]) {
   return keywords.reduce((total, keyword) => total + (normalized.includes(keyword) ? 1 : 0), 0);
 }
 
+function jobRequestsEarlyCareerExperience(jobText: string) {
+  return /\b(?:1|one)\s*(?:-|to|through|\u2013|\u2014)\s*(?:3|three)\s*(?:\+)?\s*(?:years?|yrs?)\b/.test(jobText);
+}
+
+function findProjectByText(profile: FullProfile, keyword: string) {
+  return profile.projects.find((project) => {
+    const text = [project.name, project.description, ...project.bullets].join(" ").toLowerCase();
+    return text.includes(keyword);
+  });
+}
+
+function findExperienceByText(profile: FullProfile, keyword: string) {
+  return profile.work_experience.find((experience) => {
+    const text = [experience.company, experience.title, ...experience.bullets].join(" ").toLowerCase();
+    return text.includes(keyword);
+  });
+}
+
+function candidateLooksEarlyCareer(profile: FullProfile) {
+  const educationText = profile.education
+    .map((item) => `${item.school} ${item.degree} ${item.field} ${item.graduation_date}`)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    profile.work_experience.length <= 1 ||
+    educationText.includes("bachelor") ||
+    educationText.includes("undergraduate") ||
+    educationText.includes("master")
+  );
+}
+
+function buildCandidateCoverLetterBridgeGuidance(
+  profile: FullProfile,
+  jobDescription: string
+) {
+  const jobText = jobDescription.toLowerCase();
+  const inventoryProject = findProjectByText(profile, "inventory intelligence");
+  const siemensExperience = findExperienceByText(profile, "siemens");
+  const dataRoleSignals = countMatches(jobText, [
+    "ai",
+    "artificial intelligence",
+    "machine learning",
+    "data analysis",
+    "data analytics",
+    "analytics",
+    "forecasting",
+    "predictive",
+    "python",
+    "sql",
+    "dashboard",
+    "visualization",
+    "decision support",
+    "data-driven",
+  ]);
+  const manufacturingRoleSignals = countMatches(jobText, [
+    "manufacturing",
+    "production",
+    "process design",
+    "process improvement",
+    "manufacturing tools",
+    "tooling",
+    "lean",
+    "six sigma",
+    "industrial engineering",
+    "facility",
+    "layout",
+    "capacity",
+    "quality",
+    "root cause",
+    "continuous improvement",
+    "time study",
+  ]);
+  const shouldBridgeExperienceGap =
+    jobRequestsEarlyCareerExperience(jobText) && candidateLooksEarlyCareer(profile) && profile.projects.length > 0;
+
+  const guidance: string[] = [
+    "First infer what kind of person the JD is trying to hire, then select the candidate's strongest related resume evidence. Do not choose a project or employer by default.",
+    "Make the strongest related experience or project the main body evidence. Use other relevant experiences only as support, not as equal-weight filler.",
+  ];
+
+  if (dataRoleSignals > 0 && inventoryProject) {
+    guidance.push(
+      `If the JD emphasizes AI, data analysis, analytics, forecasting, decision support, dashboards, Python, SQL, or data-driven operations, make "${inventoryProject.name}" the primary evidence unless another profile item is clearly more relevant.`,
+      `For "${inventoryProject.name}", explain the data or operational problem, the candidate's analytical work, the tools or methods used, and how the output supports decisions tied to the JD.`
+    );
+  }
+
+  if (manufacturingRoleSignals > 0 && siemensExperience) {
+    guidance.push(
+      `If the JD emphasizes manufacturing tools, manufacturing operations, process design, process improvement, industrial engineering, quality, tooling, layout, capacity, or production work, make the ${siemensExperience.company} experience the primary evidence unless another profile item is clearly more relevant.`,
+      `For ${siemensExperience.company}, connect the candidate's hands-on manufacturing or process work to the role's required responsibilities, then use projects such as Inventory Intelligence only as secondary support if they strengthen the case.`
+    );
+  }
+
+  if (dataRoleSignals > 0 && manufacturingRoleSignals > 0 && inventoryProject && siemensExperience) {
+    guidance.push(
+      `If the JD blends data analytics with manufacturing or process work, lead with whichever evidence matches the first or most repeated JD requirement: "${inventoryProject.name}" for analytics-heavy roles, or ${siemensExperience.company} for shop-floor, tooling, process design, or manufacturing-heavy roles. Use the other as the supporting paragraph.`
+    );
+  }
+
+  if (shouldBridgeExperienceGap) {
+    guidance.push(
+      "If the job asks for 1 to 3 years of experience and the candidate appears early-career or newly graduated, do not ignore the gap and do not apologize for it. Instead, bridge it by explaining how the candidate's most relevant project, internship, coursework, or hands-on work maps to the employer's requirements.",
+      "When formal work history is lighter than the JD requests, make the project evidence do more work: name the business problem, the candidate's role, the methods or tools used, and the output or decision value. Keep the claim modest and factual."
+    );
+  }
+
+  guidance.push(
+    "If the candidate lacks a listed requirement, use the closest truthful experience or project to show transferable readiness, but never claim the missing requirement directly."
+  );
+
+  return guidance;
+}
+
 export function pickResumeSampleStrategy(
   profile: FullProfile,
   jobLink: string,
@@ -512,6 +627,7 @@ export function buildCoverLetterGuidance(
 ) {
   const strategy = pickResumeSampleStrategy(profile, jobLink, jobDescription);
   const type = COVER_LETTER_TYPES[pickCoverLetterType(jobLink, jobDescription)];
+  const candidateBridgeGuidance = buildCandidateCoverLetterBridgeGuidance(profile, jobDescription);
 
   return [
     `COVER LETTER TYPE TO MODEL: ${type.label}`,
@@ -523,5 +639,7 @@ export function buildCoverLetterGuidance(
     `INDUSTRY FOCUS TO EMPHASIZE: ${strategy.label}`,
     "Different industries value different evidence. Steer the body of the letter toward what this industry cares about:",
     ...strategy.coverLetterFocus.map((item) => `- ${item}`),
+    "Candidate-specific gap-bridging guidance:",
+    ...candidateBridgeGuidance.map((item) => `- ${item}`),
   ].join("\n");
 }

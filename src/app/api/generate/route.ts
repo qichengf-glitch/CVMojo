@@ -350,7 +350,8 @@ ${current}
 async function expandCoverLetterToFillPage(
   coverLetter: string,
   language: "en" | "zh",
-  source: string
+  source: string,
+  jobDescription: string
 ): Promise<string> {
   let current = coverLetter;
 
@@ -369,6 +370,19 @@ ${CHINESE_TRANSLATION_BOUNDARY}
 ${source}
 ---
 
+目标职位描述：
+---
+${jobDescription || "(none)"}
+---
+
+扩写要求：
+- 强调候选人以前的经历或项目和职位要求之间的具体关联。
+- 先判断 JD 最想找哪类人，再选择简历中最强相关的一段经历或项目作为主线；其他相关经历只做补充。
+- 如果 JD 强调 AI、data analysis、analytics、forecasting、decision support 等，优先考虑 Inventory Intelligence 是否是最强证据。
+- 如果 JD 强调 manufacturing tools、manufacturing operations、process design、process improvement、industrial engineering、tooling 等，优先考虑 Siemens Energy 是否是最强证据。
+- 如果职位要求的正式工作年限高于候选人背景，不要道歉或夸大年限；用最相关的真实项目、实习、课程或实践经历补强匹配度。
+- 如果项目是最强证据，请说明项目问题、候选人做了什么、使用的方法或工具，以及它如何对应职位要求。
+
 需要扩展的求职信：
 ---
 ${current}
@@ -380,6 +394,19 @@ SOURCE (real content you may draw from):
 ---
 ${source}
 ---
+
+TARGET JOB DESCRIPTION:
+---
+${jobDescription || "(none)"}
+---
+
+Expansion requirements:
+- Make the connection between prior experience or projects and the job requirements explicit.
+- First infer what kind of candidate the JD is trying to hire, then choose the strongest related resume item as the main evidence. Use other relevant experiences only as support.
+- If the JD emphasizes AI, data analysis, analytics, forecasting, or decision support, consider whether Inventory Intelligence is the strongest evidence.
+- If the JD emphasizes manufacturing tools, manufacturing operations, process design, process improvement, industrial engineering, or tooling, consider whether Siemens Energy is the strongest evidence.
+- If the role asks for more formal work experience than the candidate appears to have, do not apologize or inflate tenure. Bridge the gap with the strongest truthful project, internship, coursework, or hands-on experience.
+- If a project is the strongest evidence, explain the problem, the candidate's work, the methods or tools, and how it maps to the role's requirements.
 
 Cover letter to expand:
 ---
@@ -629,7 +656,8 @@ export async function POST(request: Request) {
       const fittedCoverLetter = await expandCoverLetterToFillPage(
         compressedCoverLetter,
         "en",
-        sourceContext
+        sourceContext,
+        jobDescription ?? ""
       );
       result.docs.en = {
         resume: qualityCheckedResume.resume,
@@ -670,7 +698,8 @@ export async function POST(request: Request) {
       const expandedCoverLetter = await expandCoverLetterToFillPage(
         compressedCoverLetter,
         "zh",
-        sourceContext
+        sourceContext,
+        jobDescription ?? ""
       );
       const fittedCoverLetter = await repairChineseDocument(
         expandedCoverLetter,

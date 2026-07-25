@@ -224,6 +224,10 @@ COVER LETTER RULES:
 - For English output, use plain business English and control the use of "I." For Chinese output, use concise professional Chinese business writing. Prefer clear sentences over ornamental wording.
 - Write 3 to 4 body paragraphs as directed by the type guidance. Make paragraphs substantive (about 3 to 6 sentences), not one-line fragments.
 - Choose the candidate's actual most relevant experiences for the body. Never assume any specific project or employer; select whatever genuinely fits this job from the profile.
+- Before writing, infer the employer's main hiring signal from the JD, then choose one primary resume item as the letter's strongest evidence. Use other relevant experiences only as supporting evidence.
+- Make the connection between the candidate's prior experience or projects and the JD explicit. Each body paragraph should answer a concrete requirement from the job description, not merely describe the candidate's background.
+- If the JD asks for more formal work experience than the candidate appears to have, do not apologize or overclaim. Bridge the gap with the strongest truthful project, internship, coursework, or hands-on experience, explaining how it maps to the required responsibilities.
+- When a project is the candidate's strongest evidence for a missing requirement, give that project real weight in the letter: briefly explain the problem, the candidate's work, the tools or methods, and the job-relevant outcome.
 - Never call the candidate something they are not, such as Data Scientist, Product Manager, or Engineer, unless that is their actual role title in the profile.
 - Never overstate fit. Do not say the candidate is a perfect match, ideal fit, or already operating at the target job's level.
 - Do not write generic filler such as "what stood out to me", "I am excited to apply", "this opportunity would allow me", or "this experience strengthened my interest" unless the sentence contains concrete specifics.
